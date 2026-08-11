@@ -75,7 +75,7 @@
   `class-design.md` 8章に従い、`DialogueActCatalog`, `ScoreCalculator`, 各`ModifierResolver`, `SoftmaxSelector`, `SpeechExpectationCalculator`, `DialoguePlanner`を実装する。Modifier係数は外部設定ファイル（`implementation-rules.md`未確定事項→この時点でJSON形式に決定して進めてよい）として `dialoguePlanner/config/` に置く。
   テスト: `features.md` F5.3のスコア計算式、F5.4のSoftmax確率化、同一入力を複数回実行した際に確率的な揺らぎが出ることをユニットテストする。
 
-- [ ] **T10. LLM連携（F7）: Together AIクライアントとプロンプト管理**
+- [x] **T10. LLM連携（F7）: Together AIクライアントとプロンプト管理**
   `class-design.md` 10章に従い、`TogetherClient`（既定モデル `google/gemma-3n-E4B-it`）, `PromptTemplateLoader`, `PromptBuilder`, `OutputParser` を実装する。`packages/engine/prompts/utterance/base.md` 等、最低限のテンプレートを`implementation-rules.md` 6章のルールに沿って作成する。
   テスト: `PromptBuilder`のプレースホルダー置換をユニットテストする（LLM実呼び出しはモックする）。`.env.example`に`TOGETHER_API_KEY`, `TOGETHER_MODEL`を追加する。
 

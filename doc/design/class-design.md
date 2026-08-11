@@ -427,11 +427,12 @@ export class ConversationManager {
 
 ```text
 llm/
-├── TogetherClient.ts        # chat completions呼び出し (F7.2)
-├── EmbeddingClient.ts         # embeddings呼び出し（memory/EmbeddingServiceが利用）
-├── PromptTemplateLoader.ts     # prompts/**/*.md の読み込み＋mtimeキャッシュ (F7.1a)
-├── PromptBuilder.ts             # テンプレート＋変数からプロンプト全文を構築 (F7.1)
-└── OutputParser.ts               # セリフ本文抽出・簡易整合性チェック (F7.3)
+├── LlmClient.ts               # complete()のみを持つインターフェース
+├── TogetherClient.ts            # chat completions呼び出し (F7.2)
+├── EmbeddingClient.ts             # embeddings呼び出し（memory/EmbeddingServiceが利用、T15で追加）
+├── PromptTemplateLoader.ts         # prompts/**/*.md の読み込み＋mtimeキャッシュ (F7.1a)
+├── PromptBuilder.ts                  # テンプレート＋変数からプロンプト全文を構築 (F7.1)
+└── OutputParser.ts                     # セリフ本文抽出・簡易整合性チェック (F7.3)
 ```
 
 ```typescript
@@ -450,6 +451,15 @@ export class PromptBuilder {
   build(templateName: string, vars: Record<string, string>): string;
 }
 ```
+
+### 10.1 プロンプトテンプレート一覧（`packages/engine/prompts/`、implementation-rules.md 6章）
+
+| ファイル | 用途 | プレースホルダー |
+|---|---|---|
+| `utterance/base.md` | セリフ生成の基本テンプレート（F7.1） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{emotion}}`, `{{speakingStyle}}`, `{{targetName}}`, `{{addressTerm}}`, `{{dialogueAct}}`, `{{retrievedMemory}}`, `{{recentDialogue}}` |
+| `utterance/with_shared_memory.md` | 共有記憶を参照させたい場合に`base.md`の出力へ追加で組み合わせるテンプレート | `{{baseInstruction}}`, `{{targetName}}`, `{{characterName}}`, `{{sharedMemory}}` |
+
+T10時点では`utterance/`配下のみ作成した。`dialogueAct/candidate_selection.md`（F5.5、小型LLMによるAct候補提案の任意機能）はF5.5自体が未実装のため作成していない。
 
 ## 11. F8: ログ・イベント（`packages/engine/src/logging/`）
 
