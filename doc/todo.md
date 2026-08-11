@@ -51,7 +51,7 @@
 
 ## フェーズ1: Engine（2体会話・コアロジック）
 
-- [ ] **T04. character_def取り込み（CharacterDefLoader）**
+- [x] **T04. character_def取り込み（CharacterDefLoader）**
   `class-design.md` 12章、`data-design.md` 4章に従い、`packages/engine/src/data/` に `CharacterDefLoader`, `YamlCharacterParser`, `MarkdownMemoryParser` を実装する。`CHARACTER_DEF_PATH` 環境変数（既定値 `/home/sora_55/workspace/vr-team/character_def`）から `design/main`, `design/sub`, `memory/**/*.md` を読み込み、型付きレコードを返す。`color`フィールド（`ui-design-rules.md` 2.2）も取り込むこと。
   テスト: 実際の `character_def` ディレクトリを読み込ませ、4体のキャラクター・少なくとも1件ずつの記憶ファイルが正しくパースされることをユニットテストで確認する。YAML/Markdownの異常系（frontmatter欠落等）で例外を投げることも確認する。
 

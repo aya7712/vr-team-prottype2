@@ -99,11 +99,15 @@ export interface MemoryItem {
   source: 'preset' | 'session';
   owner: string;
   participants: string[];
+  occurredAt?: string | null;   // data-design.md 4.3 (D3)。日付未特定ならnull
+  occurredEra?: string | null;   // 'YYYY-MM-DD'化できない曖昧な時期
+  location?: string | null;
   summary: string;
   tags: string[];
   importance: number;
-  emotion?: string;
+  emotion?: string | null;
   shareable: boolean;
+  related?: string[] | null;     // 関連記憶のid（data-design.md 4.3）
   body?: string;
 }
 

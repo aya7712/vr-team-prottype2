@@ -5,10 +5,14 @@ export interface MemoryItem {
   source: MemorySource;
   owner: string;
   participants: string[];
+  occurredAt?: string | null;
+  occurredEra?: string | null;
+  location?: string | null;
   summary: string;
   tags: string[];
   importance: number;
-  emotion?: string;
+  emotion?: string | null;
   shareable: boolean;
+  related?: string[] | null;
   body?: string;
 }
