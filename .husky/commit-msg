@@ -1,0 +1,10 @@
+#!/usr/bin/env sh
+# packages/配下の変更を含むコミットには自己レビューtrailerを必須にする
+# (implementation-rules.md 9.1, doc/todo.md 運用ルール)
+
+if git diff --cached --name-only | grep -q '^packages/'; then
+  if ! grep -qE '^Self-Review: .+, TODO=.+, findings=.+' "$1"; then
+    echo "commit-msg: packages/配下の変更には 'Self-Review: <model>, TODO=<番号>, findings=<件数-対応状況>' のtrailerが必要です (implementation-rules.md 9.1)" >&2
+    exit 1
+  fi
+fi
