@@ -28,7 +28,7 @@
 
 ## フェーズ0: プロジェクト基盤
 
-- [ ] **T01. モノレポ初期化**
+- [x] **T01. モノレポ初期化**
   `architecture.md` 3〜4章に従い、npm workspaces構成（`packages/engine`, `packages/server`, `packages/ui`）を作成する。ルートに `package.json`, `tsconfig.base.json`, ESLint/Prettier設定、`.gitignore`（`data/*.sqlite`, `.env` を含む）を用意する。各パッケージに空の `src/index.ts` と最小の `package.json` を置き、`npm install` が通ることを確認する。
   テスト: `npm install` が成功すること、`npm run build`（空実装でよい）が全パッケージで通ること。
 
