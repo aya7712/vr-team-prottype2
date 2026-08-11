@@ -55,7 +55,7 @@
   `class-design.md` 12章、`data-design.md` 4章に従い、`packages/engine/src/data/` に `CharacterDefLoader`, `YamlCharacterParser`, `MarkdownMemoryParser` を実装する。`CHARACTER_DEF_PATH` 環境変数（既定値 `/home/sora_55/workspace/vr-team/character_def`）から `design/main`, `design/sub`, `memory/**/*.md` を読み込み、型付きレコードを返す。`color`フィールド（`ui-design-rules.md` 2.2）も取り込むこと。
   テスト: 実際の `character_def` ディレクトリを読み込ませ、4体のキャラクター・少なくとも1件ずつの記憶ファイルが正しくパースされることをユニットテストで確認する。YAML/Markdownの異常系（frontmatter欠落等）で例外を投げることも確認する。
 
-- [ ] **T05. Character Brain（F1）**
+- [x] **T05. Character Brain（F1）**
   `class-design.md` 4章に従い、`CharacterBrain`, `EmotionUpdater`, `GoalUpdater`, `IntentUpdater`, `SpeakingStyleResolver` を実装する。`features.md` F1.2の更新順序（感情→Goal→Intent）を守る。
   テスト: 代表的な入力（共感された/否定された等のイベント）に対する状態更新の期待値をユニットテストする。
 
