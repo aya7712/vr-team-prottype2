@@ -103,7 +103,7 @@
   `data-design.md` 4章・6章に従い、`server`起動時にT04の`CharacterDefLoader`結果を`characters_cache`/`memory_preset_cache`へ書き込む処理を実装する。`EmbeddingService`（Together AI Embeddings API）と`memory_embeddings`テーブルを実装し、`MemoryRepositoryImpl`（`MemoryRepository`の本実装、FTS5＋コサイン類似度のハイブリッド検索）を実装してT07のフェイクと差し替える。
   テスト: 実際の`character_def`データを取り込んだ状態で、キーワード検索・意味検索それぞれで期待する記憶が上位に来ることを確認するテストを書く（Embedding生成は課金が発生するため、テストではモックまたは事前計算済みベクトルを使う）。
 
-- [ ] **T16. Session/Turn/Feedback Repository**
+- [x] **T16. Session/Turn/Feedback Repository**
   `class-design.md` 13章に従い、`SessionRepository`, `TurnRepository`, `FeedbackRepository`を実装する。
   テスト: CRUD操作のユニットテスト。
 

@@ -559,6 +559,36 @@ server/
 - `TurnOrchestrator`は`ConversationManager`のasync generatorを1ターンずつ受け取り、`TurnRepository`/`FeedbackRepository`へ書き込みつつ、`ws/gateway.ts`経由でUIへブロードキャストする。
 - `CacheSyncService`（T15）はサーバー起動時（T17/T18で実際に呼び出す）に`CharacterDefLoader.loadAll()`→`CharacterCacheRepository`への書き込み→（`EmbeddingService`が注入されていれば）記憶プリセットごとのembedding計算・`MemoryRepositoryImpl.saveEmbedding()`保存、の順で実行する。
 
+### 13.1 SessionRepository / TurnRepository / FeedbackRepository（T16）
+
+`class-design.md`旧版にはメソッドシグネチャの記載が無かったため、`architecture.md` 7章のREST APIエンドポイントから逆算して実装した。
+
+```typescript
+export class SessionRepository {
+  create(input: CreateSessionInput): SessionRecord;   // POST /api/sessions
+  findById(id: string): SessionRecord | null;          // GET /api/sessions/:id
+  updateStatus(id: string, status: SessionStatus): void; // POST /run, /stop
+  list(): SessionRecord[];
+}
+
+export class TurnRepository {
+  createTurn(turn: TurnRecord): TurnRecord;                          // F8.1
+  findByTurnNo(sessionId: string, turnNo: number): TurnRecord | null; // GET /turns/:turnNo
+  listBySession(sessionId: string): TurnRecord[];                     // GET /turns
+  createLayerEvent(sessionId: string, turnNo: number, layer: LayerName, payload: unknown): void; // F8.1
+  listLayerEvents(sessionId: string, turnNo: number): LayerEventRecord[]; // F9.3
+}
+
+export class FeedbackRepository {
+  // PRIMARY KEY (session_id, turn_no) のためupsert（POST /turns/:turnNo/feedback、F8.2/F9.5）
+  upsert(sessionId: string, turnNo: number, rating: FeedbackRating, comment: string | null): FeedbackRecord;
+  findByTurn(sessionId: string, turnNo: number): FeedbackRecord | null;
+  listBySession(sessionId: string): FeedbackRecord[];
+}
+```
+
+`TurnRecord`はengineの`TurnResult`（`types/turn.ts`）とフィールド構成を一致させており、`TurnOrchestrator`（T18）がConversationManagerの出力をそのまま渡せるようにしている。`turns.topic_id`は`topics(id)`への外部キー制約があるため、ターン保存前に対応する`topics`行が存在している必要がある（`topics`テーブル自体へのRepositoryはT16のスコープ外。T18で`TurnOrchestrator`が`ConversationManager`の`layer:topic`イベントを受けて書き込む想定）。
+
 ## 14. `packages/ui/` の構成
 
 ```text
