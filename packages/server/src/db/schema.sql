@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS characters_cache (
   id              TEXT PRIMARY KEY,
   name            TEXT NOT NULL,
   furigana        TEXT,
+  color           TEXT NOT NULL,        -- ui-design-rules.md 2.2: キャラクター識別色の唯一の情報源
   age             INTEGER,
   gender          TEXT,
   first_person    TEXT,

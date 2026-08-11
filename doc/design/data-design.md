@@ -91,6 +91,8 @@ CREATE TABLE characters_cache (
   id              TEXT PRIMARY KEY,     -- 'char_a' 等、design/main のファイル名由来
   name            TEXT NOT NULL,
   furigana        TEXT,
+  color           TEXT NOT NULL,        -- ui-design-rules.md 2.2: キャラクター識別色の唯一の情報源。
+                                         -- T15で判明した欠落を追記（design/main/*.yamlのcolorフィールド由来）
   age             INTEGER,
   gender          TEXT,
   first_person    TEXT,

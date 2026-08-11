@@ -99,7 +99,7 @@
   `data-design.md` 5章のCREATE TABLE群を`packages/server/src/db/schema.sql`として作成し、起動時に適用する`migrate.ts`を実装する。`better-sqlite3`を導入する。
   テスト: マイグレーション実行後、全テーブルが期待通りのカラムで作成されることをテストする。
 
-- [ ] **T15. キャッシュ同期・MemoryRepository実装・意味検索**
+- [x] **T15. キャッシュ同期・MemoryRepository実装・意味検索**
   `data-design.md` 4章・6章に従い、`server`起動時にT04の`CharacterDefLoader`結果を`characters_cache`/`memory_preset_cache`へ書き込む処理を実装する。`EmbeddingService`（Together AI Embeddings API）と`memory_embeddings`テーブルを実装し、`MemoryRepositoryImpl`（`MemoryRepository`の本実装、FTS5＋コサイン類似度のハイブリッド検索）を実装してT07のフェイクと差し替える。
   テスト: 実際の`character_def`データを取り込んだ状態で、キーワード検索・意味検索それぞれで期待する記憶が上位に来ることを確認するテストを書く（Embedding生成は課金が発生するため、テストではモックまたは事前計算済みベクトルを使う）。
 

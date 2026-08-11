@@ -79,6 +79,7 @@ export class MarkdownMemoryParser {
       shareable: requireBoolean(frontmatter, 'shareable', filePath),
       related: nullableStringArray(frontmatter, 'related'),
       body: body.trim(),
+      sourcePath: filePath,
     };
   }
 }

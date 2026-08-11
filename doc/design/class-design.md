@@ -109,6 +109,7 @@ export interface MemoryItem {
   shareable: boolean;
   related?: string[] | null;     // 関連記憶のid（data-design.md 4.3）
   body?: string;
+  sourcePath?: string;            // 由来ファイルパス。'preset'のみ設定（T15、memory_preset_cache.raw_md_path用）
 }
 
 // topic.ts
@@ -256,8 +257,9 @@ export class RelationshipUpdater {
 memory/
 ├── MemoryRepository.ts            # インターフェース（server層のSQLite実装に注入される）
 ├── InMemoryMemoryRepository.ts      # SQLiteなしで動作確認するためのテスト用フェイク（T07）
-├── MemoryRetriever.ts                # F3.4：T07時点ではキーワードマッチのみ。意味検索はT15で追加
-├── EmbeddingService.ts                 # Together AI Embeddings APIラッパー（T10/T15で追加）
+├── MemoryRetriever.ts                # F3.4：キーワードマッチ（T07）＋意味検索（T15）のハイブリッド
+├── EmbeddingService.ts                 # Together AI Embeddings APIラッパー（T15）
+├── cosineSimilarity.ts                  # コサイン類似度計算（T15）
 └── types.ts                              # MemoryQuery, MemoryFilter 等
 ```
 
@@ -278,13 +280,14 @@ export interface MemoryFilter {
 }
 
 export class MemoryRetriever {
-  // T07時点ではEmbeddingService（F7、T10/T15で実装予定）が未実装のため依存に含めない。
-  // data-design.md 6.2の①FTS5候補抽出・②意味的再ランキングはT15で追加し、
-  // その時点でconstructorにembeddingServiceを追加する。
-  constructor(private repo: MemoryRepository) {}
+  // embeddingServiceはoptional。未注入時はT07同様キーワードのみのランキングになる
+  // （後方互換）。data-design.md 6.2①のFTS5候補抽出は`repo.getAllCandidates`の
+  // 全件走査で代替した（プロトタイプ規模のデータ量では①を省略してよいという
+  // data-design.md 6.2の記載を採用）。
+  constructor(private repo: MemoryRepository, private embeddingService?: EmbeddingService) {}
 
   // Topic/DialoguePlannerからのクエリを受け、F3.4の①〜④の手順で記憶を検索する
-  // （T07時点は③フィルタリング・④上位選出のみ。①②はT15で追加）
+  // （③フィルタリング・④上位選出はT07、②意味的再ランキングはT15で追加）
   async retrieve(query: MemoryQuery): Promise<MemoryItem[]>;
 }
 
@@ -537,22 +540,24 @@ server/
 │   ├── ws/
 │   │   └── gateway.ts           # EngineEventBus購読 → WebSocket broadcast
 │   ├── services/
-│   │   ├── SessionService.ts     # セッション作成・キャラクター初期化（CharacterDefLoader呼び出し）
-│   │   └── TurnOrchestrator.ts    # ConversationManager.runSession呼び出し＋各イベントの永続化
+│   │   ├── CacheSyncService.ts    # 起動時にCharacterDefLoader結果をキャッシュテーブルへ同期（T15）
+│   │   ├── SessionService.ts       # セッション作成・キャラクター初期化（CharacterDefLoader呼び出し）
+│   │   └── TurnOrchestrator.ts      # ConversationManager.runSession呼び出し＋各イベントの永続化
 │   ├── db/
 │   │   ├── schema.sql             # data-design.md 5章のCREATE TABLE群
 │   │   ├── migrate.ts
 │   │   └── repositories/
-│   │       ├── CharacterCacheRepository.ts
-│   │       ├── MemoryRepositoryImpl.ts     # engine.memory.MemoryRepository の実装
+│   │       ├── CharacterCacheRepository.ts   # characters_cache等への書き込み（T15）
+│   │       ├── MemoryRepositoryImpl.ts         # engine.memory.MemoryRepository の実装（T15）
 │   │       ├── SessionRepository.ts
 │   │       ├── TurnRepository.ts
 │   │       └── FeedbackRepository.ts
 │   └── index.ts
 ```
 
-- `MemoryRepositoryImpl`が`packages/engine/src/memory/MemoryRepository`インターフェースを実装し、`SessionService`組み立て時にEngineへ注入する（Engine→Server方向の依存を作らない）。
+- `MemoryRepositoryImpl`が`packages/engine/src/memory/MemoryRepository`インターフェースを実装し、`SessionService`組み立て時にEngineへ注入する（Engine→Server方向の依存を作らない）。`MemoryRepository`インターフェースに無い`saveEmbedding()`（書き込み専用）も持ち、`CacheSyncService`が記憶プリセットのembedding計算結果を保存するのに使う。
 - `TurnOrchestrator`は`ConversationManager`のasync generatorを1ターンずつ受け取り、`TurnRepository`/`FeedbackRepository`へ書き込みつつ、`ws/gateway.ts`経由でUIへブロードキャストする。
+- `CacheSyncService`（T15）はサーバー起動時（T17/T18で実際に呼び出す）に`CharacterDefLoader.loadAll()`→`CharacterCacheRepository`への書き込み→（`EmbeddingService`が注入されていれば）記憶プリセットごとのembedding計算・`MemoryRepositoryImpl.saveEmbedding()`保存、の順で実行する。
 
 ## 14. `packages/ui/` の構成
 

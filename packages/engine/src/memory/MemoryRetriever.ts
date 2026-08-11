@@ -1,9 +1,12 @@
 import type { MemoryItem } from '../types/memory.js';
 import type { MemoryRepository } from './MemoryRepository.js';
 import type { MemoryQuery } from './types.js';
+import type { EmbeddingService } from './EmbeddingService.js';
+import { cosineSimilarity } from './cosineSimilarity.js';
 
 const RECALL_DEDUP_WINDOW_TURNS = 5;
 const MAX_RESULTS = 3;
+const SEMANTIC_SCORE_WEIGHT = 2; // コサイン類似度(0〜1)にかける重み。キーワード一致件数と同程度の影響力にする。
 
 function keywordScore(item: MemoryItem, keywords: string[]): number {
   if (keywords.length === 0) return 0;
@@ -15,16 +18,18 @@ function keywordScore(item: MemoryItem, keywords: string[]): number {
 }
 
 /**
- * F3.4のキーワードマッチのみの簡易版（T07）。
- * data-design.md 6.2の①〜④のうち、①FTS5候補抽出と②意味的再ランキング（Embedding）は
- * T15で追加する。本実装は全候補（③フィルタリング相当）に対して単純なキーワード
- * 一致件数でスコアリングし、④の上位選出とrecordRecallのみを行う。
- *
- * class-design.md旧版ではEmbeddingService（F7、T10/T15で実装予定）にも依存する設計
- * だったが、意味検索を後回しにする本TODOのスコープに合わせて依存から外している。
+ * F3.4: キーワードマッチ（T07）＋意味検索（T15）のハイブリッド版。
+ * data-design.md 6.2の①〜④のうち、①FTS5候補抽出は`repo.getAllCandidates`で
+ * 代替し（データ件数が少ないプロトタイプ規模のため全件走査で足りる、6.2の
+ * 「実装簡易化の余地」を採用）、③フィルタリング・④上位選出を行う。
+ * `embeddingService`が注入されている場合のみ②意味的再ランキング（コサイン類似度）を
+ * キーワード一致件数に加算するハイブリッドスコアで行う（未注入時はT07同様キーワードのみ）。
  */
 export class MemoryRetriever {
-  constructor(private readonly repo: MemoryRepository) {}
+  constructor(
+    private readonly repo: MemoryRepository,
+    private readonly embeddingService?: EmbeddingService,
+  ) {}
 
   async retrieve(query: MemoryQuery): Promise<MemoryItem[]> {
     // 6.3: participantsに話者が含まれる記憶のみが自己記憶/共有記憶の候補になる。
@@ -55,9 +60,13 @@ export class MemoryRetriever {
       (item) => !recentlyRecalledIds.has(item.id),
     );
 
-    // 6.2④: キーワード一致件数（同数ならimportance）でスコアリングし上位を選出する。
+    const semanticScores = await this.computeSemanticScores(notRecentlyRecalled, query);
+
+    // 6.2④: キーワード一致件数＋意味的類似度（同数ならimportance）でスコアリングし上位を選出する。
     const ranked = [...notRecentlyRecalled].sort((a, b) => {
-      const scoreDiff = keywordScore(b, query.topicKeywords) - keywordScore(a, query.topicKeywords);
+      const totalA = keywordScore(a, query.topicKeywords) + (semanticScores.get(a.id) ?? 0);
+      const totalB = keywordScore(b, query.topicKeywords) + (semanticScores.get(b.id) ?? 0);
+      const scoreDiff = totalB - totalA;
       if (scoreDiff !== 0) return scoreDiff;
       return b.importance - a.importance;
     });
@@ -71,5 +80,31 @@ export class MemoryRetriever {
     );
 
     return selected;
+  }
+
+  // 6.2②: クエリのembeddingと各候補のembedding(memory_embeddings)とのコサイン類似度を
+  // 計算する。embeddingServiceが無い、またはクエリキーワードが空の場合はスキップする
+  // （T07までの挙動を維持）。
+  private async computeSemanticScores(
+    candidates: MemoryItem[],
+    query: MemoryQuery,
+  ): Promise<Map<string, number>> {
+    const scores = new Map<string, number>();
+    if (!this.embeddingService || query.topicKeywords.length === 0) {
+      return scores;
+    }
+
+    const queryEmbedding = await this.embeddingService.embed(query.topicKeywords.join(' '));
+
+    await Promise.all(
+      candidates.map(async (item) => {
+        const itemEmbedding = await this.repo.getEmbedding(item.id);
+        if (!itemEmbedding) return;
+        const similarity = cosineSimilarity(queryEmbedding, itemEmbedding);
+        scores.set(item.id, similarity * SEMANTIC_SCORE_WEIGHT);
+      }),
+    );
+
+    return scores;
   }
 }

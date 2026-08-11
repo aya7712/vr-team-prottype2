@@ -88,6 +88,7 @@ describe('migrate', () => {
       'id',
       'name',
       'furigana',
+      'color',
       'age',
       'gender',
       'first_person',

@@ -1,8 +1,26 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { InMemoryMemoryRepository } from './InMemoryMemoryRepository.js';
 import { MemoryRetriever } from './MemoryRetriever.js';
+import type { EmbeddingService } from './EmbeddingService.js';
+import type { MemoryRepository } from './MemoryRepository.js';
 import type { MemoryItem } from '../types/memory.js';
 import type { MemoryQuery } from './types.js';
+
+// InMemoryMemoryRepository.getEmbedding()は常にnull（T07）を返すため、
+// 意味検索のテストにはembeddingを返すフェイクリポジトリでラップする。
+function withEmbeddings(
+  repo: InMemoryMemoryRepository,
+  embeddings: Record<string, Float32Array>,
+): MemoryRepository {
+  return {
+    searchByKeyword: (q, limit) => repo.searchByKeyword(q, limit),
+    getAllCandidates: (filter) => repo.getAllCandidates(filter),
+    recordRecall: (sessionId, turnNo, memoryId, source) =>
+      repo.recordRecall(sessionId, turnNo, memoryId, source),
+    getRecentRecalls: (sessionId, withinTurns) => repo.getRecentRecalls(sessionId, withinTurns),
+    getEmbedding: async (memoryId) => embeddings[memoryId] ?? null,
+  };
+}
 
 function makeMemory(overrides: Partial<MemoryItem> = {}): MemoryItem {
   return {
@@ -116,5 +134,39 @@ describe('MemoryRetriever', () => {
 
     await retriever.retrieve(makeQuery({ turnNo: 5, targetIds: [] }));
     expect(await repo.getRecentRecalls('session_1', 10)).toEqual(['mem_1']);
+  });
+
+  it('embeddingServiceを注入すると意味的に近い記憶が上位に来る（T15、data-design.md 6.2②）', async () => {
+    const baseRepo = new InMemoryMemoryRepository([
+      makeMemory({ id: 'mem_close', summary: '無関係な単語のみ', importance: 1 }),
+      makeMemory({ id: 'mem_far', summary: '無関係な単語のみ', importance: 1 }),
+    ]);
+    const repo = withEmbeddings(baseRepo, {
+      mem_close: new Float32Array([1, 0]),
+      mem_far: new Float32Array([0, 1]),
+    });
+    const embeddingService = {
+      embed: vi.fn().mockResolvedValue(new Float32Array([1, 0])),
+    } as unknown as EmbeddingService;
+
+    const retriever = new MemoryRetriever(repo, embeddingService);
+    const results = await retriever.retrieve(
+      makeQuery({ targetIds: [], topicKeywords: ['クエリ'] }),
+    );
+
+    expect(results[0]?.id).toBe('mem_close');
+    expect(embeddingService.embed).toHaveBeenCalledWith('クエリ');
+  });
+
+  it('embeddingServiceが無い場合はキーワードのみでランキングされる（T07までの挙動を維持）', async () => {
+    const repo = new InMemoryMemoryRepository([
+      makeMemory({ id: 'mem_1', summary: 'ボルダリングの話', importance: 1 }),
+    ]);
+    const retriever = new MemoryRetriever(repo);
+
+    const results = await retriever.retrieve(
+      makeQuery({ targetIds: [], topicKeywords: ['ボルダリング'] }),
+    );
+    expect(results.map((m) => m.id)).toEqual(['mem_1']);
   });
 });
