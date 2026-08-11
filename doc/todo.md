@@ -32,7 +32,7 @@
   `architecture.md` 3〜4章に従い、npm workspaces構成（`packages/engine`, `packages/server`, `packages/ui`）を作成する。ルートに `package.json`, `tsconfig.base.json`, ESLint/Prettier設定、`.gitignore`（`data/*.sqlite`, `.env` を含む）を用意する。各パッケージに空の `src/index.ts` と最小の `package.json` を置き、`npm install` が通ることを確認する。
   テスト: `npm install` が成功すること、`npm run build`（空実装でよい）が全パッケージで通ること。
 
-- [ ] **T02. Lint/Test/Buildスクリプトの整備**
+- [x] **T02. Lint/Test/Buildスクリプトの整備**
   ルートに `npm run lint` / `npm run test` / `npm run build` を用意し、各パッケージに委譲する。Vitestをengine/serverに、engineにはUIなしのユニットテスト実行環境を設定する。`implementation-rules.md` 8章のテスト方針に従う。
   テスト: サンプルの `1+1` テストを仮置きし、`npm run test` が通ることを確認（後続TODOで実テストに置き換わる）。
 
