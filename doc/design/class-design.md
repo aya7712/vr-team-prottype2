@@ -254,10 +254,11 @@ export class RelationshipUpdater {
 
 ```text
 memory/
-├── MemoryRepository.ts        # インターフェース（server層のSQLite実装に注入される）
-├── MemoryRetriever.ts          # F3.4：キーワード+意味検索のハイブリッド（data-design.md 6章）
-├── EmbeddingService.ts          # Together AI Embeddings APIラッパー
-└── types.ts                      # MemoryQuery 等
+├── MemoryRepository.ts            # インターフェース（server層のSQLite実装に注入される）
+├── InMemoryMemoryRepository.ts      # SQLiteなしで動作確認するためのテスト用フェイク（T07）
+├── MemoryRetriever.ts                # F3.4：T07時点ではキーワードマッチのみ。意味検索はT15で追加
+├── EmbeddingService.ts                 # Together AI Embeddings APIラッパー（T10/T15で追加）
+└── types.ts                              # MemoryQuery, MemoryFilter 等
 ```
 
 ```typescript
@@ -277,12 +278,13 @@ export interface MemoryFilter {
 }
 
 export class MemoryRetriever {
-  constructor(
-    private repo: MemoryRepository,
-    private embeddingService: EmbeddingService,
-  ) {}
+  // T07時点ではEmbeddingService（F7、T10/T15で実装予定）が未実装のため依存に含めない。
+  // data-design.md 6.2の①FTS5候補抽出・②意味的再ランキングはT15で追加し、
+  // その時点でconstructorにembeddingServiceを追加する。
+  constructor(private repo: MemoryRepository) {}
 
   // Topic/DialoguePlannerからのクエリを受け、F3.4の①〜④の手順で記憶を検索する
+  // （T07時点は③フィルタリング・④上位選出のみ。①②はT15で追加）
   async retrieve(query: MemoryQuery): Promise<MemoryItem[]>;
 }
 
