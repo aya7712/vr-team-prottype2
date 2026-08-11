@@ -36,7 +36,7 @@
   ルートに `npm run lint` / `npm run test` / `npm run build` を用意し、各パッケージに委譲する。Vitestをengine/serverに、engineにはUIなしのユニットテスト実行環境を設定する。`implementation-rules.md` 8章のテスト方針に従う。
   テスト: サンプルの `1+1` テストを仮置きし、`npm run test` が通ることを確認（後続TODOで実テストに置き換わる）。
 
-- [ ] **T03. 共有型定義の作成**
+- [x] **T03. 共有型定義の作成**
   `class-design.md` 3章に従い、`packages/engine/src/types/` に `character.ts`, `relationship.ts`, `memory.ts`, `topic.ts`, `dialogueAct.ts`, `turn.ts`, `events.ts` を作成する。`server`/`ui` から参照できるようpathエイリアス（例: `@engine/types`）を設定する。
   テスト: 型チェック（`tsc --noEmit`）が通ること。
 

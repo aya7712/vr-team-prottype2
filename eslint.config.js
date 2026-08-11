@@ -19,6 +19,7 @@ export default [
     },
     rules: {
       ...tseslint.configs.recommended.rules,
+      '@typescript-eslint/consistent-type-imports': ['error', { prefer: 'type-imports' }],
     },
   },
   prettierConfig,

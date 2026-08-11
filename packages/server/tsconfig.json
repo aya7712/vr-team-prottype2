@@ -2,7 +2,12 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "baseUrl": ".",
+    "paths": {
+      "@engine/types": ["../engine/src/types/index.ts"],
+      "@engine/types/*": ["../engine/src/types/*"]
+    }
   },
   "include": ["src"],
   "exclude": ["src/**/*.test.ts"]
