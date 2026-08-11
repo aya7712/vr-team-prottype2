@@ -6,14 +6,16 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/db && cp src/db/schema.sql dist/db/",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
   },
   "dependencies": {
-    "@prottype2/engine": "*"
+    "@prottype2/engine": "*",
+    "better-sqlite3": "^13.0.3"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
     "typescript": "^5.7.2",
     "vitest": "^4.1.10"
   }

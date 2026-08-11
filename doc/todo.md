@@ -95,7 +95,7 @@
 
 ## フェーズ2: Server（永続化・API・配信）
 
-- [ ] **T14. SQLiteスキーマ・マイグレーション**
+- [x] **T14. SQLiteスキーマ・マイグレーション**
   `data-design.md` 5章のCREATE TABLE群を`packages/server/src/db/schema.sql`として作成し、起動時に適用する`migrate.ts`を実装する。`better-sqlite3`を導入する。
   テスト: マイグレーション実行後、全テーブルが期待通りのカラムで作成されることをテストする。
 
