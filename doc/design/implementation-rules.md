@@ -34,6 +34,7 @@
 - パッケージ間の依存方向は `ui → server → engine` のみ許可する。`engine`が`server`や`ui`のコードをimportすることは禁止（`class-design.md` 15章の依存関係図に従う）。
 - `engine`内の各機能ドメイン（`character/`, `relationship/`, `topic/`等）は、原則として他ドメインのフォルダを直接importせず、`ConversationManager`（F6）を介して連携する。例外的に密接な連携がある場合（例：`RelationshipManager`が`MemoryRetriever`を使う）は`class-design.md`に明記されている依存のみ許可する。
   - `data/`（character_def取り込み、F1〜F8のドメインではなく起動時ロード専用）は例外で、TODO本文がT04出力の直接利用を明記している場合に限り他ドメインからのimportを許可する（例：`relationship/RelationshipGraphFactory.ts`が`data/types.ts`の`CharacterDefRecord`を使う、T06）。
+  - `conversationManager/`（F6、全体オーケストレーション）は例外で、`class-design.md`のコンストラクタ一覧に明記された各ドメインを横断してimportしてよい（`ConversationManager`は設計上すべてのドメインを束ねる役割のため）。
 
 ## 5. 外部I/O・非同期処理
 

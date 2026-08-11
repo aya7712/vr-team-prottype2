@@ -6,3 +6,5 @@ export * from './memory/index.js';
 export * from './topic/index.js';
 export * from './dialoguePlanner/index.js';
 export * from './llm/index.js';
+export * from './logging/index.js';
+export * from './conversationManager/index.js';

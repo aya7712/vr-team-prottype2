@@ -390,10 +390,11 @@ export interface PlanningContext {
 ```text
 conversationManager/
 ├── ConversationManager.ts     # 全体オーケストレーション（1ターンの実行フロー）
-├── SpeakerSelector.ts           # F6.2（3人以上）
-├── TopicBranchMerger.ts          # F6.3（3人以上、話題の分岐・合流）
-├── TurnScheduler.ts               # F6.4 発話順・テンポ
-└── EndConditionEvaluator.ts        # F6.5 会話終了判定
+├── SpeakerSelector.ts           # F6.2（T12時点は「常に相手を返す」最小実装。3〜4体対応はT29）
+├── EndConditionEvaluator.ts      # F6.5 会話終了判定（T12時点はmaxTurns到達のみ判定）
+├── TopicBranchMerger.ts            # F6.3（3人以上、話題の分岐・合流、T30で追加）
+├── TurnScheduler.ts                 # F6.4 発話順・テンポ（3〜4体向け、必要になったら追加）
+└── types.ts                          # SessionState等（T12でconversationManagerドメイン内に新規定義）
 ```
 
 ```typescript
@@ -407,10 +408,14 @@ export class ConversationManager {
     private dialoguePlanner: DialoguePlanner,
     private memoryRetriever: MemoryRetriever,
     private promptBuilder: PromptBuilder,
-    private llmClient: TogetherClient,
+    private llmClient: LlmClient,
+    private outputParser: OutputParser,                      // T12で追加。F7.3のセリフ本文抽出に必要
+    private characterDefs: Map<string, CharacterDefRecord>,  // T12で追加。T04出力。プロンプト構築に
+                                                               // 必要なname/personality/toneSample等の
+                                                               // 静的情報はCharacterState（F1）に無いため
     private speakerSelector: SpeakerSelector,     // 2人会話では常に相手を返す実装でよい
     private endConditionEvaluator: EndConditionEvaluator,
-    private eventBus: EngineEventBus,             // F8.3
+    private eventBus?: EngineEventBus,             // F8.3。T13で本実装。テスト時は省略可
   ) {}
 
   // architecture.md 6章のシーケンスをそのまま実装するエントリポイント
@@ -419,9 +424,22 @@ export class ConversationManager {
   // シナリオ設定を受けた終了判定込みの複数ターン実行（server層のPOST /run から呼ばれる）
   async runSession(sessionState: SessionState, maxTurns: number): AsyncGenerator<TurnResult>;
 }
+
+// class-design.mdに定義が無かったためconversationManager/types.tsに新規定義（T12）。
+// ターンをまたいでミュータブルに更新される（短期記憶はdata-design.md 6.4のオンメモリ配列に対応）。
+export interface SessionState {
+  sessionId: string;
+  participantIds: string[];
+  topicTree: TopicTree;
+  conversationStateManager: ConversationStateManager;
+  turnNo: number;
+  previousAct?: DialogueAct;
+  previousSpeakerId?: string;
+  recentUtterances: { speakerId: string; utterance: string; turnNo: number }[];
+}
 ```
 
-`ConversationManager.runTurn`が`architecture.md`6章のデータフロー図をそのまま実装したものになる。各ステップの完了ごとに`eventBus.emit(layerEvent)`を呼び、server層のWebSocket Gatewayがこれを購読してUIへ配信する（EngineはWebSocketの存在を知らない）。
+`ConversationManager.runTurn`が`architecture.md`6章のデータフロー図をそのまま実装したものになる。各ステップの完了ごとに`eventBus.emit(layerEvent)`を呼び、server層のWebSocket Gatewayがこれを購読してUIへ配信する（EngineはWebSocketの存在を知らない）。T12時点では`EngineEventBus`本体をT13を待たず先行実装し（`logging/EngineEventBus.ts`）、`eventBus`は未注入でも動作するようoptionalにしている（ユニットテストでeventBusを省略できるようにするため）。
 
 ## 10. F7: LLM連携（`packages/engine/src/llm/`）
 
@@ -479,6 +497,8 @@ export class EngineEventBus {
   emit(event: LayerEventName, payload: unknown): void;
 }
 ```
+
+`ConversationManager`（F6、T12）が構造上`eventBus.emit()`を必要とするため、T13を待たずT12で本実装を前倒しした（`LayerEventName`自体はT03で`types/events.ts`に定義済み）。T13では、ここに発行されるイベント名・payloadが`types/events.ts`の`LayerEvent`判別ユニオンと一致することをユニットテストで確認する。
 
 永続化（`turns`, `turn_layer_events`テーブルへの書き込み）は**server層**の`TurnOrchestrator`がこの`EngineEventBus`を購読して行う。Engine自体はSQLiteに依存しない。
 

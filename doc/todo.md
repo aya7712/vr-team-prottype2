@@ -83,7 +83,7 @@
   `google/gemma-3n-E4B-it` に対して実際にAPIキーを使い1リクエストを送り、応答が返ることを手動確認する（自動テストにはしない。CIでAPIキーを使う自動テストは追加しない）。結果と手順を本TODOのコミットメッセージまたはPRメモに残す。
   テスト: 手動確認のみ。
 
-- [ ] **T12. Conversation Manager（F6, 2体会話版）**
+- [x] **T12. Conversation Manager（F6, 2体会話版）**
   `class-design.md` 9章に従い、`ConversationManager.runTurn` / `runSession` を実装する。`SpeakerSelector`はこの時点では「常に相手を返す」最小実装でよい（3〜4体対応はT19）。`architecture.md` 6章のシーケンス通りに各ステップでイベントを発行する。
   テスト: T05〜T10のモック/フェイクを組み合わせた統合テストとして、2体・数ターンの`runSession`が例外なく完走し、`TurnResult`が期待するフィールドを持つことを確認する。
 
