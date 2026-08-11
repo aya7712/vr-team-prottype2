@@ -40,9 +40,12 @@
   `class-design.md` 3章に従い、`packages/engine/src/types/` に `character.ts`, `relationship.ts`, `memory.ts`, `topic.ts`, `dialogueAct.ts`, `turn.ts`, `events.ts` を作成する。`server`/`ui` から参照できるようpathエイリアス（例: `@engine/types`）を設定する。
   テスト: 型チェック（`tsc --noEmit`）が通ること。
 
-- [ ] **T03a. 自己レビューtrailer検証用pre-commitフックの導入**
-  `implementation-rules.md` 9章に従い、Huskyの`pre-commit`（または`commit-msg`）フックを導入し、`packages/`配下の変更を含むコミットで、コミットメッセージに `Self-Review: <model>, TODO=<番号>, findings=<内容>` のtrailerが含まれない場合はコミットを拒否するチェックスクリプトを実装する。`doc/`のみの変更（設計ドキュメント更新等）はチェック対象外とする。
-  テスト: trailer無しでのコミットが拒否されること、trailer有りでのコミットが成功すること、`doc/`のみの変更ではtrailer無しでも成功することを確認する（`git commit`をサンドボックスの一時リポジトリ等で試すユニット/スクリプトテストとして書く）。
+- [ ] **T03a. pre-commitフックの導入（format/lint/test + 自己レビューtrailer検証）**
+  `implementation-rules.md` 9章に従い、Huskyの`pre-commit`（コミットメッセージ関連は`commit-msg`）フックを導入し、以下を検証する。エラーが1つでもあればコミットを拒否する。
+  - `packages/`配下の変更を含む場合: `npm run format:check`（またはformatterの`--check`相当）、`npm run lint`、`npm run test` を実行し、いずれかが失敗したらコミットを拒否する。
+  - `packages/`配下の変更を含むコミットは、コミットメッセージに `Self-Review: <model>, TODO=<番号>, findings=<内容>` のtrailerが含まれない場合もコミットを拒否する。
+  - `doc/`のみの変更（設計ドキュメント更新等）はformat/lint/test・trailerともにチェック対象外とする。
+  テスト: (1) format/lint/testのいずれかが失敗する状態でのコミットが拒否されること、(2) 全て成功しtrailerも正しい場合にコミットが成功すること、(3) trailer無しでのコミットが拒否されること、(4) `doc/`のみの変更ではいずれのチェックも行わずコミットが成功すること、を確認する（`git commit`をサンドボックスの一時リポジトリ等で試すスクリプトテストとして書く）。
 
 ---
 
