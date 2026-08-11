@@ -497,11 +497,12 @@ export type LayerEventName =
 
 export class EngineEventBus {
   on(event: LayerEventName, handler: (payload: unknown) => void): void;
+  off(event: LayerEventName, handler: (payload: unknown) => void): void; // T18で追加
   emit(event: LayerEventName, payload: unknown): void;
 }
 ```
 
-`ConversationManager`（F6、T12）が構造上`eventBus.emit()`を必要とするため、T13を待たずT12で本実装を前倒しした（`LayerEventName`自体はT03で`types/events.ts`に定義済み）。T13では、ここに発行されるイベント名・payloadが`types/events.ts`の`LayerEvent`判別ユニオンと一致することをユニットテストで確認する。
+`ConversationManager`（F6、T12）が構造上`eventBus.emit()`を必要とするため、T13を待たずT12で本実装を前倒しした（`LayerEventName`自体はT03で`types/events.ts`に定義済み）。T13では、ここに発行されるイベント名・payloadが`types/events.ts`の`LayerEvent`判別ユニオンと一致することをユニットテストで確認する。`off()`はT18で、`TurnOrchestrator`がセッション実行のたびに永続化用リスナーを購読・解除するために追加した（`EngineEventBus`はserver全体で共有される単一インスタンスのため、購読しっぱなしにすると複数回の実行で重複登録される）。
 
 永続化（`turns`, `turn_layer_events`テーブルへの書き込み）は**server層**の`TurnOrchestrator`がこの`EngineEventBus`を購読して行う。Engine自体はSQLiteに依存しない。
 
@@ -556,7 +557,7 @@ server/
 ```
 
 - `MemoryRepositoryImpl`が`packages/engine/src/memory/MemoryRepository`インターフェースを実装し、`SessionService`組み立て時にEngineへ注入する（Engine→Server方向の依存を作らない）。`MemoryRepository`インターフェースに無い`saveEmbedding()`（書き込み専用）も持ち、`CacheSyncService`が記憶プリセットのembedding計算結果を保存するのに使う。
-- `TurnOrchestrator`は`ConversationManager`のasync generatorを1ターンずつ受け取り、`TurnRepository`/`FeedbackRepository`へ書き込みつつ、`ws/gateway.ts`経由でUIへブロードキャストする。
+- `TurnOrchestrator`（T18）は`ConversationManager`のasync generatorを1ターンずつ受け取りつつ、`EngineEventBus`を購読して`TurnRepository`（`turns`/`turn_layer_events`）・`TopicRepository`（`topics`）へ書き込む。`ws/gateway.ts`（T18）は同じ`EngineEventBus`を別途購読してUIへWebSocketブロードキャストする（`TurnOrchestrator`とは独立した購読者）。
 - `CacheSyncService`（T15）はサーバー起動時（T17/T18で実際に呼び出す）に`CharacterDefLoader.loadAll()`→`CharacterCacheRepository`への書き込み→（`EmbeddingService`が注入されていれば）記憶プリセットごとのembedding計算・`MemoryRepositoryImpl.saveEmbedding()`保存、の順で実行する。
 
 ### 13.1 SessionRepository / TurnRepository / FeedbackRepository（T16）
@@ -613,6 +614,51 @@ export class SessionService {
 Express 5（`path-to-regexp`更新に伴い）では`req.params[name]`の型が`string | string[]`になるため、単一セグメントの名前付きパラメータのみを使う本プロジェクトでは`routes/params.ts`の`getParam()`ヘルパーで`string`に絞り込んでから使用する。
 
 `TurnRecord`はengineの`TurnResult`（`types/turn.ts`）とフィールド構成を一致させており、`TurnOrchestrator`（T18）がConversationManagerの出力をそのまま渡せるようにしている。`turns.topic_id`は`topics(id)`への外部キー制約があるため、ターン保存前に対応する`topics`行が存在している必要がある（`topics`テーブル自体へのRepositoryはT16のスコープ外。T18で`TurnOrchestrator`が`ConversationManager`の`layer:topic`イベントを受けて書き込む想定）。
+
+### 13.3 TurnOrchestrator / ws/gateway.ts（T18）
+
+`POST /api/sessions/:id/run`は`SessionService.run()`でstatusを`running`へ更新した後、`TurnOrchestrator.start(id, maxTurns)`を**awaitせずに**呼び出す（fire-and-forget）。レスポンス（202）は開始の受理のみを表し、生成の完了は待たない。`POST /stop`は`TurnOrchestrator.requestStop()`を呼び、次のターン境界で安全にループを打ち切る（ターン途中で状態を壊さないため即時中断はしない）。
+
+```typescript
+export class TurnOrchestrator {
+  constructor(
+    private sessionRepository: SessionRepository,
+    private turnRepository: TurnRepository,
+    private characterCacheRepository: CharacterCacheRepository,
+    private memoryRepository: MemoryRepositoryImpl,
+    private topicRepository: TopicRepository,   // T18で追加（13.1章参照）
+    private llmClient: LlmClient,
+    private eventBus: EngineEventBus,
+  ) {}
+
+  // participantIdsからCharacterDefRecordを読み出し、CharacterBrain/RelationshipManager/
+  // DialoguePlanner/MemoryRetriever/PromptBuilder等を組み立ててConversationManagerを
+  // 構築し、runSessionを実行しながらEngineEventBusを購読して永続化する。
+  async start(sessionId: string, maxTurns?: number): Promise<void>;
+
+  // 次のターン境界でrunSessionループを打ち切る（statusはstoppedになる）。
+  requestStop(): void;
+}
+```
+
+**キャラクター初期状態**: `CharacterBrain`の初期`CharacterState`は、`personality`のみ`CharacterDefRecord`（DBの`characters_cache`）から引き継ぎ、`emotion`/`energy`/`curiosity`/`currentGoal`/`speakingStyle`はF1.1のデフォルト値（calm/0.5/0.5/'仲良くなる'/中立）から開始する（features.md/class-design.mdに初期値の指定が無いため実装者判断）。
+
+**プロンプトテンプレートのパス解決**: `packages/engine/prompts/`はビルド成果物（`dist/`）に含まれないソース資産のため、`require.resolve('@prottype2/engine')`でmain解決先（`dist/index.js`）を取得し、そこからパッケージルートを逆算して`prompts/`を参照する（モノレポのworkspace解決に依存する、CHARACTER_DEF_PATHとは異なる方式）。
+
+**`turn_layer_events`の書き込みタイミング**: `turns(session_id, turn_no)`への外部キー制約があるため、ターン進行中に発行される`layer:*`イベントは`turns`行の作成（`turn:complete`時点）より先に発生する。そのため`TurnOrchestrator`はターン内でレイヤーイベントをメモリ上にバッファリングし、`turn:complete`で`turns`行を作成した直後にまとめて書き込む。`topics`行（`turns.topic_id`のFK先）は`turns`に依存しないため、`layer:topic`受信時に`TopicRepository.upsert()`で即時書き込む。
+
+**単一セッション前提**: architecture.md 1章の「単一ユーザー・単一セッションのローカル実行を想定」に従い、`TurnOrchestrator`は同時に複数セッションを実行できない（2回目の`start()`は例外を投げる）。`EngineEventBus`はserver全体で共有される単一インスタンスのため、`start()`は実行のたびに永続化用リスナーを`on()`で購読し、完了時（`finally`）に`off()`で解除する。
+
+```typescript
+// EngineEventBus（class-design.md 11章）にoff()を追加（T18）。
+export class EngineEventBus {
+  on(event: LayerEventName, handler: (payload: unknown) => void): void;
+  off(event: LayerEventName, handler: (payload: unknown) => void): void;
+  emit(event: LayerEventName, payload: unknown): void;
+}
+```
+
+`ws/gateway.ts`の`attachWebSocketGateway(httpServer, eventBus)`は`TurnOrchestrator`とは独立に同じ`EngineEventBus`を購読し、`architecture.md` 7章のイベント一覧（`turn:start`〜`turn:complete`）を`{ event, payload }`形式のJSONとして全接続クライアントへブロードキャストする。`WebSocketServer`は`path: '/ws'`でhttp.Serverへアタッチする。
 
 ## 14. `packages/ui/` の構成
 

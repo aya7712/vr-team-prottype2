@@ -44,4 +44,29 @@ describe('EngineEventBus', () => {
     const bus = new EngineEventBus();
     expect(() => bus.emit('turn:complete', {})).not.toThrow();
   });
+
+  it('offで解除したハンドラはemitで呼ばれなくなる（T18）', () => {
+    const bus = new EngineEventBus();
+    const handler = vi.fn();
+    bus.on('turn:start', handler);
+    bus.off('turn:start', handler);
+
+    bus.emit('turn:start', { turnNo: 1, speakerCandidateIds: [] });
+
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('offは指定したハンドラのみを解除する（同一イベントの他ハンドラは維持される）', () => {
+    const bus = new EngineEventBus();
+    const handler1 = vi.fn();
+    const handler2 = vi.fn();
+    bus.on('layer:llm', handler1);
+    bus.on('layer:llm', handler2);
+    bus.off('layer:llm', handler1);
+
+    bus.emit('layer:llm', { prompt: 'p', rawOutput: 'r' });
+
+    expect(handler1).not.toHaveBeenCalled();
+    expect(handler2).toHaveBeenCalledTimes(1);
+  });
 });

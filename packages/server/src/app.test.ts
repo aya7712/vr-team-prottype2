@@ -1,9 +1,14 @@
-import { describe, expect, it, afterEach, beforeEach } from 'vitest';
+import { describe, expect, it, afterEach, beforeEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import request from 'supertest';
 import type { Express } from 'express';
+import type { LlmClient } from '@prottype2/engine';
 import { migrate } from './db/migrate.js';
 import { createApp } from './app.js';
+
+function makeFakeLlmClient(): LlmClient {
+  return { complete: vi.fn().mockResolvedValue('「テスト発話」') };
+}
 
 function seedCharacters(db: Database.Database, ids: string[]) {
   const insert = db.prepare(`
@@ -25,7 +30,7 @@ describe('REST API（architecture.md 7章）', () => {
     db = new Database(':memory:');
     migrate(db);
     seedCharacters(db, ['char_a', 'char_b', 'char_c']);
-    app = createApp(db);
+    app = createApp(db, { llmClient: makeFakeLlmClient() });
   });
 
   afterEach(() => {
@@ -83,13 +88,22 @@ describe('REST API（architecture.md 7章）', () => {
         .send({ participantIds: ['char_a', 'char_b'] });
       const sessionId = created.body.id;
 
-      const runRes = await request(app).post(`/api/sessions/${sessionId}/run`);
+      // maxTurns:1でバックグラウンド実行を短時間に抑え、次のstopとの競合を避ける
+      // （TurnOrchestratorはfire-and-forgetで起動するため、テストのdb.closeより
+      // 後まで残らないようにする）。
+      const runRes = await request(app)
+        .post(`/api/sessions/${sessionId}/run`)
+        .send({ maxTurns: 1 });
       expect(runRes.status).toBe(202);
       expect(runRes.body.status).toBe('running');
 
       const stopRes = await request(app).post(`/api/sessions/${sessionId}/stop`);
       expect(stopRes.status).toBe(200);
       expect(stopRes.body.status).toBe('stopped');
+
+      // バックグラウンドのTurnOrchestrator.start()が完了するまで少し待ち、
+      // db.close()後にアクセスされることによる例外・ログ汚染を防ぐ。
+      await new Promise((resolve) => setTimeout(resolve, 50));
     });
 
     it('存在しないセッションへのrunは404を返す', async () => {

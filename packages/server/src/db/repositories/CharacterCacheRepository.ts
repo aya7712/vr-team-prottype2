@@ -12,6 +12,70 @@ export class CharacterCacheRepository {
     return this.db.prepare('SELECT 1 FROM characters_cache WHERE id = ?').get(id) !== undefined;
   }
 
+  // characters_cache/character_relationships_cacheからCharacterDefRecordを再構成する
+  // （T18、TurnOrchestratorがConversationManagerを組み立てる際に使用）。
+  findByIds(ids: string[]): CharacterDefRecord[] {
+    if (ids.length === 0) return [];
+
+    const placeholders = ids.map(() => '?').join(',');
+    const rows = this.db
+      .prepare(`SELECT * FROM characters_cache WHERE id IN (${placeholders})`)
+      .all(...ids) as Array<{
+      id: string;
+      name: string;
+      furigana: string | null;
+      color: string;
+      age: number | null;
+      gender: string | null;
+      first_person: string | null;
+      personality: string;
+      tone_sample: string | null;
+      vocabulary_json: string;
+      ng_topics_json: string;
+      unit_context_json: string | null;
+      llm_json: string | null;
+      raw_yaml_path: string;
+    }>;
+
+    const relRows = this.db
+      .prepare(
+        `SELECT * FROM character_relationships_cache WHERE character_id IN (${placeholders})`,
+      )
+      .all(...ids) as Array<{
+      character_id: string;
+      target_character_id: string;
+      address: string | null;
+      description: string | null;
+    }>;
+
+    return rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      furigana: row.furigana,
+      color: row.color,
+      age: row.age,
+      gender: row.gender,
+      firstPerson: row.first_person,
+      personality: row.personality,
+      toneSample: row.tone_sample,
+      vocabulary: JSON.parse(row.vocabulary_json) as string[],
+      ngTopics: JSON.parse(row.ng_topics_json) as string[],
+      relationships: relRows
+        .filter((rel) => rel.character_id === row.id)
+        .map((rel) => ({
+          characterId: rel.character_id,
+          targetCharacterId: rel.target_character_id,
+          address: rel.address ?? '',
+          description: rel.description ?? '',
+        })),
+      unitContext: row.unit_context_json
+        ? (JSON.parse(row.unit_context_json) as Record<string, unknown>)
+        : null,
+      llm: row.llm_json ? (JSON.parse(row.llm_json) as CharacterDefRecord['llm']) : null,
+      rawYamlPath: row.raw_yaml_path,
+    }));
+  }
+
   syncCharacters(characters: CharacterDefRecord[]): void {
     const now = new Date().toISOString();
     const run = this.db.transaction((records: CharacterDefRecord[]) => {

@@ -4,3 +4,4 @@ export * from './types.js';
 export * from './SessionRepository.js';
 export * from './TurnRepository.js';
 export * from './FeedbackRepository.js';
+export * from './TopicRepository.js';

@@ -111,7 +111,7 @@
   `architecture.md` 7章のエンドポイント一覧に従い、`POST /api/sessions`, `GET /api/sessions/:id`, `GET /api/sessions/:id/turns`, `GET /api/sessions/:id/turns/:turnNo`, `POST /api/sessions/:id/turns/:turnNo/feedback`, `POST /api/sessions/:id/run`, `POST /api/sessions/:id/stop` を実装する。
   テスト: 各エンドポイントのリクエスト/レスポンスをHTTPレベルで検証する統合テストを書く。
 
-- [ ] **T18. WebSocket Gateway・TurnOrchestrator**
+- [x] **T18. WebSocket Gateway・TurnOrchestrator**
   `class-design.md` 13章に従い、`TurnOrchestrator`が`ConversationManager.runSession`を実行しつつ`turns`/`turn_layer_events`へ永続化し、`ws/gateway.ts`が`EngineEventBus`のイベントをWebSocketでブロードキャストすることを実装する。
   テスト: WebSocketクライアントを模擬し、`POST /run`実行中に`architecture.md` 7章のイベント一覧が想定順序で届くことを確認する。
 
