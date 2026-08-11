@@ -307,12 +307,18 @@ topic/
 ├── TopicParameterUpdater.ts    # energy/novelty/life更新 (F4.3)
 ├── TopicContinuationScorer.ts   # 話題継続価値の算出 (F4.4)
 ├── ConversationStateManager.ts   # ConversationState全体の保持・更新 (F4.5)
-└── RhythmTracker.ts               # 直近Act系列の監視・補正 (F4.6)
+├── RhythmTracker.ts               # 直近Act系列の監視・補正 (F4.6)
+└── types.ts                        # TopicEvent, TopicClassificationResult 等
 ```
 
 ```typescript
 export class TopicClassifier {
-  constructor(private embeddingService: EmbeddingService, private relationshipManager: RelationshipManager) {}
+  // T08時点ではEmbeddingService（F7、T15で実装予定）が未実装のため依存に含めない。
+  // 意味的類似度は文字bigramのJaccard係数による暫定計算とし（doc/todo.md T08）、
+  // T15で埋め込みベースの計算に差し替える際にembeddingServiceを追加する。
+  // RelationshipManager（T06実装済み）も、関連度判定ロジック自体がT08未着手で
+  // 使い道が無いため依存から外している。関連度判定を実装する後続TODOで追加する。
+  constructor() {}
 
   // 意味的類似度＋関係性記憶を加味した3段階判定 (F4.2)
   classify(utterance: string, tree: TopicTree, speakerId: string, targetId: string): TopicClassificationResult;

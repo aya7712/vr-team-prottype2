@@ -67,7 +67,7 @@
   `class-design.md` 6章に従い、`MemoryRepository`インターフェースを定義し、まずはSQLiteなしで動作確認するための**インメモリ実装**（テスト用フェイク）を用意する。`MemoryRetriever`（キーワードマッチのみの簡易版でよい。意味検索はT15で追加）を実装する。
   テスト: `shareable: false` の記憶が他キャラとの会話で除外されること、`participants`に基づく自己記憶/共有記憶の切り分けをユニットテストする。
 
-- [ ] **T08. Topic Analyzer / ConversationState（F4）**
+- [x] **T08. Topic Analyzer / ConversationState（F4）**
   `class-design.md` 7章に従い、`TopicTree`, `TopicClassifier`（意味的類似度部分は暫定的に文字列一致・簡易スコアで実装し、埋め込みはT15後に差し替える）, `TopicParameterUpdater`, `TopicContinuationScorer`, `ConversationStateManager`, `RhythmTracker` を実装する。
   テスト: `features.md` F4.3のenergy/novelty/life更新ルール、F4.6のリズム補正（同一Act連続時に他Actの重みが上がること）をユニットテストする。
 
