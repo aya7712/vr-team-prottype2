@@ -87,7 +87,7 @@
   `class-design.md` 9章に従い、`ConversationManager.runTurn` / `runSession` を実装する。`SpeakerSelector`はこの時点では「常に相手を返す」最小実装でよい（3〜4体対応はT19）。`architecture.md` 6章のシーケンス通りに各ステップでイベントを発行する。
   テスト: T05〜T10のモック/フェイクを組み合わせた統合テストとして、2体・数ターンの`runSession`が例外なく完走し、`TurnResult`が期待するフィールドを持つことを確認する。
 
-- [ ] **T13. Turn Logger / EventBus（F8, Engine側）**
+- [x] **T13. Turn Logger / EventBus（F8, Engine側）**
   `class-design.md` 11章に従い、`EngineEventBus`を実装し、T12の`ConversationManager`から各レイヤーイベントが発行されることを確認する。
   テスト: イベント購読時に想定した`LayerEventName`と`payload`が発行されることをユニットテストする。
 

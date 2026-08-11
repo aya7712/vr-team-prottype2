@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ConversationManager } from './ConversationManager.js';
+import { SpeakerSelector } from './SpeakerSelector.js';
+import { EndConditionEvaluator } from './EndConditionEvaluator.js';
 import type { SessionState } from './types.js';
+import { EngineEventBus } from '../logging/EngineEventBus.js';
 import { CharacterBrain } from '../character/CharacterBrain.js';
 import { EmotionUpdater } from '../character/EmotionUpdater.js';
 import { GoalUpdater } from '../character/GoalUpdater.js';
@@ -70,7 +73,10 @@ function makeFakeTemplateLoader(templateContent: string): PromptTemplateLoader {
   return { load: vi.fn().mockReturnValue(templateContent) } as unknown as PromptTemplateLoader;
 }
 
-function makeConversationManager(llmResponses: string[]): ConversationManager {
+function makeConversationManager(
+  llmResponses: string[],
+  eventBus?: EngineEventBus,
+): ConversationManager {
   const relationshipGraph = new RelationshipGraph();
   relationshipGraph.addEdge({
     characterId: 'char_a',
@@ -131,6 +137,9 @@ function makeConversationManager(llmResponses: string[]): ConversationManager {
     llmClient,
     new OutputParser(),
     characterDefs,
+    new SpeakerSelector(),
+    new EndConditionEvaluator(),
+    eventBus,
   );
 }
 
@@ -199,5 +208,65 @@ describe('ConversationManager', () => {
     expect(sessionState.recentUtterances[0].utterance).toBe('こんにちは');
     expect(sessionState.previousSpeakerId).toBe('char_a');
     expect(sessionState.previousAct).toBeDefined();
+  });
+
+  it('runTurnはarchitecture.md 6章の順序で各レイヤーイベントを発行する（F8.3、T13）', async () => {
+    const eventBus = new EngineEventBus();
+    const manager = makeConversationManager(['「やったー！」'], eventBus);
+    const sessionState = makeSessionState();
+
+    const emittedEventNames: string[] = [];
+    const payloadsByEvent: Record<string, unknown[]> = {};
+    const eventNames = [
+      'turn:start',
+      'layer:topic',
+      'layer:relationship',
+      'layer:character',
+      'layer:dialoguePlanner',
+      'layer:memory',
+      'layer:llm',
+      'turn:complete',
+    ] as const;
+    for (const name of eventNames) {
+      payloadsByEvent[name] = [];
+      eventBus.on(name, (payload) => {
+        emittedEventNames.push(name);
+        payloadsByEvent[name].push(payload);
+      });
+    }
+
+    const result = await manager.runTurn(sessionState);
+
+    expect(emittedEventNames).toEqual(eventNames);
+
+    expect(payloadsByEvent['turn:start'][0]).toMatchObject({
+      turnNo: 1,
+      speakerCandidateIds: [result.speakerId],
+    });
+    expect(payloadsByEvent['layer:topic'][0]).toMatchObject({
+      topic: { id: result.topicId },
+      conversationState: expect.any(Object),
+    });
+    expect(payloadsByEvent['layer:relationship'][0]).toMatchObject({
+      speakerId: result.speakerId,
+      targetId: result.targetIds?.[0],
+      edge: expect.any(Object),
+    });
+    expect(payloadsByEvent['layer:character'][0]).toMatchObject({
+      characterState: { id: result.speakerId },
+    });
+    expect(payloadsByEvent['layer:dialoguePlanner'][0]).toMatchObject({
+      scores: expect.any(Array),
+      selectedAct: result.dialogueAct,
+      expectation: expect.any(Object),
+    });
+    expect(payloadsByEvent['layer:memory'][0]).toMatchObject({
+      retrieved: expect.any(Array),
+    });
+    expect(payloadsByEvent['layer:llm'][0]).toMatchObject({
+      prompt: expect.any(String),
+      rawOutput: '「やったー！」',
+    });
+    expect(payloadsByEvent['turn:complete'][0]).toEqual(result);
   });
 });
