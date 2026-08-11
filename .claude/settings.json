@@ -1,4 +1,7 @@
 {
+  "env": {
+    "CHARACTER_DEF_PATH": "/home/sora_55/workspace/vr-team/character_def"
+  },
   "permissions": {
     "deny": [
       "Read(.env)",
