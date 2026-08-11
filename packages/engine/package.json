@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/dialoguePlanner/config && cp src/dialoguePlanner/config/*.json dist/dialoguePlanner/config/",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest run"
   },

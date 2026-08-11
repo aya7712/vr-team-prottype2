@@ -71,7 +71,7 @@
   `class-design.md` 7章に従い、`TopicTree`, `TopicClassifier`（意味的類似度部分は暫定的に文字列一致・簡易スコアで実装し、埋め込みはT15後に差し替える）, `TopicParameterUpdater`, `TopicContinuationScorer`, `ConversationStateManager`, `RhythmTracker` を実装する。
   テスト: `features.md` F4.3のenergy/novelty/life更新ルール、F4.6のリズム補正（同一Act連続時に他Actの重みが上がること）をユニットテストする。
 
-- [ ] **T09. Dialogue Planner（F5）**
+- [x] **T09. Dialogue Planner（F5）**
   `class-design.md` 8章に従い、`DialogueActCatalog`, `ScoreCalculator`, 各`ModifierResolver`, `SoftmaxSelector`, `SpeechExpectationCalculator`, `DialoguePlanner`を実装する。Modifier係数は外部設定ファイル（`implementation-rules.md`未確定事項→この時点でJSON形式に決定して進めてよい）として `dialoguePlanner/config/` に置く。
   テスト: `features.md` F5.3のスコア計算式、F5.4のSoftmax確率化、同一入力を複数回実行した際に確率的な揺らぎが出ることをユニットテストする。
 

@@ -1,0 +1,12 @@
+{
+  "question": 1.0,
+  "answer": 1.0,
+  "empathy": 1.0,
+  "deny": 0.6,
+  "joke": 0.8,
+  "tsukkomi": 0.7,
+  "story": 0.9,
+  "deepDive": 0.7,
+  "topicShift": 0.5,
+  "fillSilence": 0.3
+}

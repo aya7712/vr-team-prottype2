@@ -381,6 +381,9 @@ export interface PlanningContext {
 ```
 
 - `ModifierResolvers/*` は各1関数のみを持つ小さなクラス（またはstrategy関数）とし、`Modifier係数を外部設定として調整可能`（要件5章 チューニング性）にするため、係数テーブル自体はJSON/TS設定ファイル（`dialoguePlanner/config/modifierWeights.ts` 等）に外出しする。
+- T09時点ではJSON形式（`dialoguePlanner/config/baseWeights.json`, `modifierWeights.json`）に決定した。`import x from './y.json'`はビルド後のNode ESM実行時にimport assertionを要求し環境依存の落とし穴になるため、`config/loadConfig.ts`が`readFileSync` + `JSON.parse`で読み込む。JSONファイルは`tsc`ではコピーされないため、`packages/engine`の`build`スクリプトで`dist/dialoguePlanner/config/`へ明示的にコピーしている。
+
+  各Modifierの具体的な係数・対象Actの組み合わせはfeatures.md/class-design.mdに数値仕様が無いため、実装者判断で設定した（`PersonalityModifier`はCharacterState.energy/curiosityを性格傾向の代理指標として使用、`ContextModifier`と`SpeechExpectationCalculator`は同じ`context.expectationTable`を共有）。
 
 ## 9. F6: Conversation Manager（`packages/engine/src/conversationManager/`）
 

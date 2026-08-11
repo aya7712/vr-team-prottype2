@@ -1,0 +1,46 @@
+{
+  "personality": {
+    "ampFactor": 0.6,
+    "actTrait": {
+      "question": "curiosity",
+      "deepDive": "curiosity",
+      "joke": "energy",
+      "tsukkomi": "energy",
+      "story": "energy"
+    }
+  },
+  "relationship": {
+    "ampFactor": 0.6,
+    "jokeToleranceActs": ["joke", "tsukkomi"],
+    "intimacyActs": ["empathy", "story", "deepDive"],
+    "honorificPenaltyActs": ["joke", "tsukkomi"]
+  },
+  "topic": {
+    "ampFactor": 0.5,
+    "energyNoveltyActs": ["deepDive", "story"],
+    "lowLifeBoostActs": ["topicShift"],
+    "unresolvedBoostActs": ["question", "answer"]
+  },
+  "emotion": {
+    "ampFactor": 0.5,
+    "actBoostByEmotion": {
+      "hurt": ["deny", "fillSilence"],
+      "amused": ["joke", "tsukkomi"],
+      "happy": ["empathy", "story"]
+    }
+  },
+  "context": {
+    "expectationTable": {
+      "question": { "answer": 0.7, "question": 0.2, "joke": 0.1 },
+      "answer": { "question": 0.4, "story": 0.3, "empathy": 0.3 },
+      "empathy": { "story": 0.4, "answer": 0.3, "question": 0.3 },
+      "deny": { "tsukkomi": 0.4, "answer": 0.3, "topicShift": 0.3 },
+      "joke": { "tsukkomi": 0.6, "answer": 0.4 },
+      "tsukkomi": { "joke": 0.4, "answer": 0.3, "story": 0.3 },
+      "story": { "empathy": 0.4, "question": 0.3, "deepDive": 0.3 },
+      "deepDive": { "answer": 0.5, "story": 0.3, "question": 0.2 },
+      "topicShift": { "question": 0.5, "story": 0.5 },
+      "fillSilence": { "question": 0.5, "topicShift": 0.5 }
+    }
+  }
+}
