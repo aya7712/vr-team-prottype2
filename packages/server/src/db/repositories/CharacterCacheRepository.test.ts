@@ -14,6 +14,18 @@ describe('CharacterCacheRepository', () => {
     db?.close();
   });
 
+  it('existsはcharacters_cacheに存在するIDでtrue、存在しないIDでfalseを返す', async () => {
+    db = new Database(':memory:');
+    migrate(db);
+    const repo = new CharacterCacheRepository(db);
+    const loader = new CharacterDefLoader(CHARACTER_DEF_PATH);
+    const { characters } = await loader.loadAll();
+    repo.syncCharacters(characters);
+
+    expect(repo.exists('char_a')).toBe(true);
+    expect(repo.exists('char_unknown')).toBe(false);
+  });
+
   it('実際のcharacter_defを取り込んだ結果をキャッシュテーブルへ書き込む', async () => {
     db = new Database(':memory:');
     migrate(db);

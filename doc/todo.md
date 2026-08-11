@@ -107,7 +107,7 @@
   `class-design.md` 13章に従い、`SessionRepository`, `TurnRepository`, `FeedbackRepository`を実装する。
   テスト: CRUD操作のユニットテスト。
 
-- [ ] **T17. REST API（セッション管理・ターン取得）**
+- [x] **T17. REST API（セッション管理・ターン取得）**
   `architecture.md` 7章のエンドポイント一覧に従い、`POST /api/sessions`, `GET /api/sessions/:id`, `GET /api/sessions/:id/turns`, `GET /api/sessions/:id/turns/:turnNo`, `POST /api/sessions/:id/turns/:turnNo/feedback`, `POST /api/sessions/:id/run`, `POST /api/sessions/:id/stop` を実装する。
   テスト: 各エンドポイントのリクエスト/レスポンスをHTTPレベルで検証する統合テストを書く。
 

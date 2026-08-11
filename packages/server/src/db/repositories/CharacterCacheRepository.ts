@@ -8,6 +8,10 @@ import type { CharacterDefRecord, SubCharacterRecord, MemoryItem } from '@protty
 export class CharacterCacheRepository {
   constructor(private readonly db: Database.Database) {}
 
+  exists(id: string): boolean {
+    return this.db.prepare('SELECT 1 FROM characters_cache WHERE id = ?').get(id) !== undefined;
+  }
+
   syncCharacters(characters: CharacterDefRecord[]): void {
     const now = new Date().toISOString();
     const run = this.db.transaction((records: CharacterDefRecord[]) => {

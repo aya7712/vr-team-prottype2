@@ -547,7 +547,7 @@ server/
 │   │   ├── schema.sql             # data-design.md 5章のCREATE TABLE群
 │   │   ├── migrate.ts
 │   │   └── repositories/
-│   │       ├── CharacterCacheRepository.ts   # characters_cache等への書き込み（T15）
+│   │       ├── CharacterCacheRepository.ts   # characters_cache等への書き込み（T15）+ exists()（T17）
 │   │       ├── MemoryRepositoryImpl.ts         # engine.memory.MemoryRepository の実装（T15）
 │   │       ├── SessionRepository.ts
 │   │       ├── TurnRepository.ts
@@ -586,6 +586,31 @@ export class FeedbackRepository {
   listBySession(sessionId: string): FeedbackRecord[];
 }
 ```
+
+### 13.2 REST API（T17、`packages/server/src/routes/`, `app.ts`）
+
+`createApp(db)`（`app.ts`）がExpressアプリを組み立てるエントリポイント。`routes/sessions.ts`と`routes/turns.ts`はそれぞれ`Router`ファクトリ関数として実装し、`SessionService`/各Repositoryを引数で受け取る（テスト時に`:memory:`DBで組み立てたアプリをsupertestで検証できるようにするため）。`routes/turns.ts`は`Router({ mergeParams: true })`で`/api/sessions/:id/turns`にマウントし、親の`:id`パラメータを継承する。
+
+`SessionService`（`services/SessionService.ts`）はT17時点では以下のみを担う。実際の会話生成（`ConversationManager`の組み立て・`runSession`実行）は`TurnOrchestrator`（T18）が担当する。
+
+```typescript
+export class SessionService {
+  // characters_cacheへの実在チェックもCharacterCacheRepository経由で行う
+  // （implementation-rules.md 5章: SQLiteアクセスはRepositoryクラス経由のみ）。
+  constructor(
+    private sessionRepository: SessionRepository,
+    private characterCacheRepository: CharacterCacheRepository,
+  ) {}
+
+  // participantIdsが2〜4体・重複なし・characters_cacheに実在することを検証してから作成する
+  createSession(request: { participantIds: string[]; scenario?: unknown }): SessionRecord;
+  getSession(id: string): SessionRecord | null;
+  run(id: string): SessionRecord | null;   // T17時点はstatus更新のみ（実際の生成はT18のTurnOrchestrator）
+  stop(id: string): SessionRecord | null;
+}
+```
+
+Express 5（`path-to-regexp`更新に伴い）では`req.params[name]`の型が`string | string[]`になるため、単一セグメントの名前付きパラメータのみを使う本プロジェクトでは`routes/params.ts`の`getParam()`ヘルパーで`string`に絞り込んでから使用する。
 
 `TurnRecord`はengineの`TurnResult`（`types/turn.ts`）とフィールド構成を一致させており、`TurnOrchestrator`（T18）がConversationManagerの出力をそのまま渡せるようにしている。`turns.topic_id`は`topics(id)`への外部キー制約があるため、ターン保存前に対応する`topics`行が存在している必要がある（`topics`テーブル自体へのRepositoryはT16のスコープ外。T18で`TurnOrchestrator`が`ConversationManager`の`layer:topic`イベントを受けて書き込む想定）。
 
