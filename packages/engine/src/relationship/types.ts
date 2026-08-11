@@ -10,3 +10,13 @@ export interface RelationshipContext {
   jokeTolerance: number;
   distance: number;
 }
+
+// design/main/*.yaml の relationships（`data/`ドメインのCharacterRelationshipRecord）から
+// 抽出した「呼び方」の方向性データ。RelationshipEdgeは6ペア分の対称な数値
+// （trust/intimacy/respect）のみを持つため、話者ごとに異なる呼称は別途この
+// AddressBookで方向性ありのまま保持する。
+export interface AddressBookEntry {
+  characterId: string;
+  targetCharacterId: string;
+  addressTerm: string;
+}

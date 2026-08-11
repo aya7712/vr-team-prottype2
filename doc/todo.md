@@ -59,7 +59,7 @@
   `class-design.md` 4章に従い、`CharacterBrain`, `EmotionUpdater`, `GoalUpdater`, `IntentUpdater`, `SpeakingStyleResolver` を実装する。`features.md` F1.2の更新順序（感情→Goal→Intent）を守る。
   テスト: 代表的な入力（共感された/否定された等のイベント）に対する状態更新の期待値をユニットテストする。
 
-- [ ] **T06. Relationship Engine（F2）**
+- [x] **T06. Relationship Engine（F2）**
   `class-design.md` 5章に従い、`RelationshipGraph`, `RelationshipManager`, `RelationshipUpdater` を実装する。T04で取得した `design/main` の `relationships` を初期値として`RelationshipGraph`を構築するファクトリも用意する。4体分＝最大6エッジを保持できることを確認する（`features.md` F2.1）。
   テスト: 2体・4体それぞれでのグラフ構築、`resolve()`が呼び方/敬語レベル等を返すこと、`RelationshipUpdater`によるtrust/intimacy変化をユニットテストする。
 

@@ -192,20 +192,29 @@ export class CharacterBrain {
 
 ```text
 relationship/
-├── RelationshipGraph.ts     # ノード・エッジの保持（4体=最大6エッジ）
-├── RelationshipManager.ts    # 相手判定→共有記憶検索→呼び方等の解決 (F2.2)
-├── RelationshipUpdater.ts     # 会話結果によるtrust/intimacy更新、Story追加 (F2.4)
-└── types.ts                   # RelationshipContext 等、このモジュール内部の型
+├── RelationshipGraph.ts        # ノード・エッジの保持（4体=最大6エッジ、無向）
+├── RelationshipGraphFactory.ts  # design/mainのrelationshipsからグラフ+AddressBookを構築
+├── RelationshipManager.ts        # 相手判定→呼び方等の解決 (F2.2)
+├── RelationshipUpdater.ts         # 会話結果によるtrust/intimacy更新、Story追加 (F2.4)
+├── config.ts                       # trust/intimacy/respectの初期値・デフォルトtype
+└── types.ts                         # RelationshipContext, AddressBookEntry 等
 ```
 
 ```typescript
 export class RelationshipGraph {
-  private edges: Map<string, RelationshipEdge>; // key: `${a}:${b}`
+  private edges: Map<string, RelationshipEdge>; // key: 2つのcharacterIdを辞書順に並べたペアキー（無向）
 
-  getEdge(a: string, b: string): RelationshipEdge;
+  addEdge(edge: RelationshipEdge): void;
+  hasEdge(a: string, b: string): boolean;
+  getEdge(a: string, b: string): RelationshipEdge; // 未登録ペアはデフォルト値で遅延生成
   updateEdge(a: string, b: string, patch: Partial<RelationshipEdge>): void;
   getSubgroupCohesion(characterIds: string[]): number; // F2.1 グループ凝集度
 }
+
+// design/main/*.yamlのrelationships（T04のCharacterDefLoader出力）からグラフを構築する。
+export function buildRelationshipGraphFromCharacterDefs(
+  characters: CharacterDefRecord[],
+): { graph: RelationshipGraph; addressBook: AddressBookEntry[] };
 
 export interface RelationshipContext {
   edge: RelationshipEdge;
@@ -215,8 +224,20 @@ export interface RelationshipContext {
   distance: number;
 }
 
+// design/main/*.yamlのrelationshipsは話者ごとに異なる呼称（address）を持つ方向性データ
+// だが、RelationshipEdge（trust/intimacy/respect）はペア単位で対称（無向）に持つため、
+// 呼称だけは別にAddressBookとして方向性ありのまま保持する。
+export interface AddressBookEntry {
+  characterId: string;
+  targetCharacterId: string;
+  addressTerm: string;
+}
+
 export class RelationshipManager {
-  constructor(private graph: RelationshipGraph, private memoryRetriever: MemoryRetriever) {}
+  // T06時点ではMemoryRetriever（F3）が未実装（T07）のため依存に含めない。
+  // resolve()が返すRelationshipContextはメモリを含まず、共有記憶検索はConversationManager
+  // （T12）がMemoryRetrieverを別途呼び出す想定。
+  constructor(private graph: RelationshipGraph, private addressBook: AddressBookEntry[]) {}
 
   // 話者→相手の関係コンテキストを解決する (F2.2)
   resolve(speakerId: string, targetId: string): RelationshipContext;
