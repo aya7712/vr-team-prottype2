@@ -79,7 +79,7 @@
   `class-design.md` 10章に従い、`TogetherClient`（既定モデル `google/gemma-3n-E4B-it`）, `PromptTemplateLoader`, `PromptBuilder`, `OutputParser` を実装する。`packages/engine/prompts/utterance/base.md` 等、最低限のテンプレートを`implementation-rules.md` 6章のルールに沿って作成する。
   テスト: `PromptBuilder`のプレースホルダー置換をユニットテストする（LLM実呼び出しはモックする）。`.env.example`に`TOGETHER_API_KEY`, `TOGETHER_MODEL`を追加する。
 
-- [ ] **T11. Together AI疎通確認（実APIを1回だけ呼ぶ検証）**
+- [x] **T11. Together AI疎通確認（実APIを1回だけ呼ぶ検証）**
   `google/gemma-3n-E4B-it` に対して実際にAPIキーを使い1リクエストを送り、応答が返ることを手動確認する（自動テストにはしない。CIでAPIキーを使う自動テストは追加しない）。結果と手順を本TODOのコミットメッセージまたはPRメモに残す。
   テスト: 手動確認のみ。
 
