@@ -29,7 +29,10 @@ export class TogetherClient implements LlmClient {
     private readonly model: string = DEFAULT_MODEL,
   ) {}
 
-  async complete(prompt: string, options?: { temperature?: number }): Promise<string> {
+  async complete(
+    prompt: string,
+    options?: { temperature?: number; model?: string },
+  ): Promise<string> {
     let lastError: unknown;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
       try {
@@ -41,7 +44,10 @@ export class TogetherClient implements LlmClient {
     throw lastError;
   }
 
-  private async requestOnce(prompt: string, options?: { temperature?: number }): Promise<string> {
+  private async requestOnce(
+    prompt: string,
+    options?: { temperature?: number; model?: string },
+  ): Promise<string> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
@@ -53,7 +59,7 @@ export class TogetherClient implements LlmClient {
           Authorization: `Bearer ${this.apiKey}`,
         },
         body: JSON.stringify({
-          model: this.model,
+          model: options?.model ?? this.model,
           messages: [{ role: 'user', content: prompt }],
           temperature: options?.temperature ?? 0.8,
         }),

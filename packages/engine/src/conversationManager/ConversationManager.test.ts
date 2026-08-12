@@ -30,7 +30,11 @@ import type { PromptTemplateLoader } from '../llm/PromptTemplateLoader.js';
 import type { LlmClient } from '../llm/LlmClient.js';
 import type { CharacterDefRecord } from '../data/types.js';
 
-function makeCharacterDef(id: string, name: string): CharacterDefRecord {
+function makeCharacterDef(
+  id: string,
+  name: string,
+  llm: CharacterDefRecord['llm'] = null,
+): CharacterDefRecord {
   return {
     id,
     name,
@@ -45,7 +49,7 @@ function makeCharacterDef(id: string, name: string): CharacterDefRecord {
     ngTopics: ['禁止トピック'],
     relationships: [],
     unitContext: null,
-    llm: null,
+    llm,
     rawYamlPath: `${id}.yaml`,
   };
 }
@@ -76,7 +80,8 @@ function makeFakeTemplateLoader(templateContent: string): PromptTemplateLoader {
 function makeConversationManager(
   llmResponses: string[],
   eventBus?: EngineEventBus,
-): ConversationManager {
+  characterLlmConfigs?: Partial<Record<'char_a' | 'char_b', CharacterDefRecord['llm']>>,
+): { manager: ConversationManager; llmClient: LlmClient } {
   const relationshipGraph = new RelationshipGraph();
   relationshipGraph.addEdge({
     characterId: 'char_a',
@@ -116,8 +121,8 @@ function makeConversationManager(
   };
 
   const characterDefs = new Map<string, CharacterDefRecord>([
-    ['char_a', makeCharacterDef('char_a', '宇良')],
-    ['char_b', makeCharacterDef('char_b', '楽')],
+    ['char_a', makeCharacterDef('char_a', '宇良', characterLlmConfigs?.char_a ?? null)],
+    ['char_b', makeCharacterDef('char_b', '楽', characterLlmConfigs?.char_b ?? null)],
   ]);
 
   const characterBrains = new Map([
@@ -125,7 +130,7 @@ function makeConversationManager(
     ['char_b', makeCharacterBrain('char_b')],
   ]);
 
-  return new ConversationManager(
+  const manager = new ConversationManager(
     new TopicClassifier(),
     new TopicParameterUpdater(),
     new TopicContinuationScorer(),
@@ -141,6 +146,7 @@ function makeConversationManager(
     new EndConditionEvaluator(),
     eventBus,
   );
+  return { manager, llmClient };
 }
 
 function makeSessionState(): SessionState {
@@ -156,7 +162,7 @@ function makeSessionState(): SessionState {
 
 describe('ConversationManager', () => {
   it('runTurnは期待するフィールドを持つTurnResultを返す', async () => {
-    const manager = makeConversationManager(['「やったー！」']);
+    const { manager } = makeConversationManager(['「やったー！」']);
     const sessionState = makeSessionState();
 
     const result = await manager.runTurn(sessionState);
@@ -172,7 +178,7 @@ describe('ConversationManager', () => {
   });
 
   it('runTurnを繰り返すと発話者が交互に切り替わる（2体会話）', async () => {
-    const manager = makeConversationManager(['「一言目」', '「二言目」', '「三言目」']);
+    const { manager } = makeConversationManager(['「一言目」', '「二言目」', '「三言目」']);
     const sessionState = makeSessionState();
 
     const first = await manager.runTurn(sessionState);
@@ -185,7 +191,7 @@ describe('ConversationManager', () => {
   });
 
   it('runSessionはmaxTurns分のTurnResultを例外なく生成する', async () => {
-    const manager = makeConversationManager(['「発話」']);
+    const { manager } = makeConversationManager(['「発話」']);
     const sessionState = makeSessionState();
 
     const results = [];
@@ -199,7 +205,7 @@ describe('ConversationManager', () => {
   });
 
   it('sessionStateのrecentUtterancesとturnNoがターンごとに更新される', async () => {
-    const manager = makeConversationManager(['「こんにちは」']);
+    const { manager } = makeConversationManager(['「こんにちは」']);
     const sessionState = makeSessionState();
 
     await manager.runTurn(sessionState);
@@ -212,7 +218,7 @@ describe('ConversationManager', () => {
 
   it('runTurnはarchitecture.md 6章の順序で各レイヤーイベントを発行する（F8.3、T13）', async () => {
     const eventBus = new EngineEventBus();
-    const manager = makeConversationManager(['「やったー！」'], eventBus);
+    const { manager } = makeConversationManager(['「やったー！」'], eventBus);
     const sessionState = makeSessionState();
 
     const emittedEventNames: string[] = [];
@@ -268,5 +274,31 @@ describe('ConversationManager', () => {
       rawOutput: '「やったー！」',
     });
     expect(payloadsByEvent['turn:complete'][0]).toEqual(result);
+  });
+
+  it('runTurnは発話者のCharacterDefRecord.llmに設定されたmodel/temperatureをllmClientへ渡す', async () => {
+    const { manager, llmClient } = makeConversationManager(
+      ['「一言目」', '「二言目」'],
+      undefined,
+      {
+        char_a: { provider: 'together', model: 'model-a', temperature: 0.3 },
+        char_b: { provider: 'together', model: 'model-b', temperature: 0.9 },
+      },
+    );
+    const sessionState = makeSessionState();
+
+    const first = await manager.runTurn(sessionState);
+    const second = await manager.runTurn(sessionState);
+
+    expect(first.speakerId).toBe('char_a');
+    expect(llmClient.complete).toHaveBeenNthCalledWith(1, expect.any(String), {
+      model: 'model-a',
+      temperature: 0.3,
+    });
+    expect(second.speakerId).toBe('char_b');
+    expect(llmClient.complete).toHaveBeenNthCalledWith(2, expect.any(String), {
+      model: 'model-b',
+      temperature: 0.9,
+    });
   });
 });

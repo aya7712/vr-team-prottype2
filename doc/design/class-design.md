@@ -458,11 +458,12 @@ llm/
 
 ```typescript
 export interface LlmClient {
-  complete(prompt: string, options?: { temperature?: number }): Promise<string>;
+  complete(prompt: string, options?: { temperature?: number; model?: string }): Promise<string>;
 }
 
 export class TogetherClient implements LlmClient {
   constructor(private apiKey: string, private model: string = 'google/gemma-3n-E4B-it') {}
+  // options.modelが指定されればコンストラクタのデフォルトmodelより優先される（T19相当）
   async complete(prompt: string, options?): Promise<string>;
 }
 
@@ -472,6 +473,8 @@ export class PromptBuilder {
   build(templateName: string, vars: Record<string, string>): string;
 }
 ```
+
+`ConversationManager.runTurn`は発話生成時、発話者の`CharacterDefRecord.llm`（`data-design.md`のcharacters_cache由来、`{ provider, model, temperature } | null`）から`model`/`temperature`を取り出し、`llmClient.complete(prompt, { model, temperature })`として渡す。これによりキャラクターごとに異なるLLMモデル・temperatureで発話生成できる。`llm`が`null`（未指定）の場合は`model`/`temperature`とも`undefined`となり、`TogetherClient`側のデフォルト（コンストラクタの`model`、`temperature`は0.8）にフォールバックする。
 
 ### 10.1 プロンプトテンプレート一覧（`packages/engine/prompts/`、implementation-rules.md 6章）
 

@@ -133,7 +133,11 @@ export class ConversationManager {
       relationshipContext,
       retrievedMemories,
     );
-    const rawOutput = await this.llmClient.complete(prompt);
+    const speakerLlmConfig = this.characterDefs.get(speakerId)?.llm ?? null;
+    const rawOutput = await this.llmClient.complete(prompt, {
+      model: speakerLlmConfig?.model,
+      temperature: speakerLlmConfig?.temperature,
+    });
     const utterance = this.outputParser.extractUtterance(rawOutput);
     this.eventBus?.emit('layer:llm', { prompt, rawOutput });
 

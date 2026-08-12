@@ -35,6 +35,20 @@ describe('TogetherClient', () => {
     expect(JSON.parse(requestInit.body).model).toBe('my-model');
   });
 
+  it('options.modelを渡すとコンストラクタのモデルより優先される', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ choices: [{ message: { content: 'ok' } }] }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const client = new TogetherClient('my-key', 'default-model');
+    await client.complete('prompt', { model: 'override-model' });
+
+    const [, requestInit] = fetchMock.mock.calls[0];
+    expect(JSON.parse(requestInit.body).model).toBe('override-model');
+  });
+
   it('HTTPエラー時に1回リトライしてから例外を投げる', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 500 });
     global.fetch = fetchMock as unknown as typeof fetch;
