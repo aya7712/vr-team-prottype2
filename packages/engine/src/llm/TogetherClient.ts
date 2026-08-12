@@ -1,7 +1,10 @@
 import type { LlmClient } from './LlmClient.js';
 
 const ENDPOINT = 'https://api.together.xyz/v1/chat/completions';
-const TIMEOUT_MS = 10_000;
+// architecture.md 9章は「例：1回リトライ、10秒タイムアウト」としていたが、T19のE2E確認で
+// 一部モデル（例: google/gemma-4-31B-it）の応答が14〜38秒程度と不安定・低速であることが
+// 判明したため60秒に延長した。
+const TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 1;
 const DEFAULT_MODEL = 'google/gemma-3n-E4B-it';
 

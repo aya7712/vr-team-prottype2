@@ -1,11 +1,15 @@
 const ENDPOINT = 'https://api.together.xyz/v1/embeddings';
-const TIMEOUT_MS = 10_000;
+// TogetherClient.tsと同様の理由で60秒に延長（T19）。
+const TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 1;
 
 // Together AIのembeddingsモデルはfeatures.md/architecture.mdに既定値の指定が
 // 無いため実装者判断で選定した（chat completionsのgoogle/gemma-3n-E4B-itと
 // 異なり、Embeddings APIは専用モデルを要求する）。
-export const DEFAULT_EMBEDDING_MODEL = 'togethercomputer/m2-bert-80M-8k-retrieval';
+// 当初は`togethercomputer/m2-bert-80M-8k-retrieval`を既定値としていたが、T19のE2E確認時に
+// Together AI側でserverless提供が終了していたことが判明したため、serverlessで利用可能かつ
+// 日本語(multilingual)に対応した`intfloat/multilingual-e5-large-instruct`に変更した。
+export const DEFAULT_EMBEDDING_MODEL = 'intfloat/multilingual-e5-large-instruct';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
