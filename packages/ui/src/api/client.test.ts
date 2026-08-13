@@ -50,6 +50,24 @@ describe('apiClient', () => {
     );
   });
 
+  it('listSessionsはGET /api/sessionsを呼びセッション一覧を返す', async () => {
+    const sessions = [
+      {
+        id: 's1',
+        scenario: null,
+        participantIds: ['char_a', 'char_b'],
+        createdAt: '2026-08-13T00:00:00.000Z',
+        status: 'stopped',
+      },
+    ];
+    mockFetch(200, sessions);
+
+    const result = await apiClient.listSessions();
+
+    expect(result).toEqual(sessions);
+    expect(fetch).toHaveBeenCalledWith('/api/sessions', expect.anything());
+  });
+
   it('getTurnはターン詳細を取得する', async () => {
     const turnDetail = {
       sessionId: 's1',

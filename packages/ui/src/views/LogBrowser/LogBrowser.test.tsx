@@ -8,6 +8,16 @@ const characters = [
   { id: 'char_b', name: 'つむぎ', furigana: null, color: '#67be8d' },
 ];
 
+const sessions = [
+  {
+    id: 's1',
+    scenario: null,
+    participantIds: ['char_a', 'char_b'],
+    createdAt: '2026-08-13T00:00:00.000Z',
+    status: 'completed' as const,
+  },
+];
+
 const turns = [
   {
     sessionId: 's1',
@@ -63,13 +73,19 @@ describe('LogBrowser', () => {
     vi.unstubAllGlobals();
   });
 
-  it('ターン一覧を表示し、選択するとF9.2/F9.3のコンポーネントで詳細を表示する', async () => {
+  it('セッション一覧→ターン一覧→ターン詳細（F9.2/F9.3のコンポーネント）の順に選択できる', async () => {
     mockFetchSequence([
+      { status: 200, body: sessions },
       { status: 200, body: turns },
       { status: 200, body: turnDetail },
     ]);
 
-    render(<LogBrowser sessionId="s1" characters={characters} />);
+    render(<LogBrowser characters={characters} />);
+
+    await waitFor(() => expect(screen.getByText('ひまり')).toBeInTheDocument());
+    expect(screen.getByText('セッションを選択してください。')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /ひまり/ }));
 
     await waitFor(() => expect(screen.getByText(/#1/)).toBeInTheDocument());
     expect(screen.getByText('ターンを選択してください。')).toBeInTheDocument();
@@ -83,10 +99,24 @@ describe('LogBrowser', () => {
     expect(screen.getByText('自然')).toBeInTheDocument();
   });
 
-  it('ターンが無い場合はプレースホルダーを表示する', async () => {
+  it('セッションが無い場合はプレースホルダーを表示する', async () => {
     mockFetchSequence([{ status: 200, body: [] }]);
 
-    render(<LogBrowser sessionId="s1" characters={characters} />);
+    render(<LogBrowser characters={characters} />);
+
+    await waitFor(() => expect(screen.getByText('セッションがありません。')).toBeInTheDocument());
+  });
+
+  it('セッション選択後、ターンが無い場合はプレースホルダーを表示する', async () => {
+    mockFetchSequence([
+      { status: 200, body: sessions },
+      { status: 200, body: [] },
+    ]);
+
+    render(<LogBrowser characters={characters} />);
+
+    await waitFor(() => expect(screen.getByText('ひまり')).toBeInTheDocument());
+    await userEvent.click(screen.getByRole('button', { name: /ひまり/ }));
 
     await waitFor(() => expect(screen.getByText('ターンがありません。')).toBeInTheDocument());
   });

@@ -16,7 +16,6 @@ type Mode = 'live' | 'log';
 export function App() {
   const [characters, setCharacters] = useState<CharacterSummary[]>([]);
   const [mode, setMode] = useState<Mode>('live');
-  const [logSessionId, setLogSessionId] = useState('');
 
   useEffect(() => {
     apiClient.listCharacters().then(setCharacters).catch(console.error);
@@ -35,14 +34,6 @@ export function App() {
         <button type="button" onClick={() => setMode('log')} disabled={mode === 'log'}>
           ログ閲覧
         </button>
-        {mode === 'log' && (
-          <input
-            type="text"
-            placeholder="セッションID"
-            value={logSessionId}
-            onChange={(e) => setLogSessionId(e.target.value)}
-          />
-        )}
       </div>
 
       {mode === 'live' ? (
@@ -64,10 +55,8 @@ export function App() {
             <LayerInspector wsUrl={wsUrl} />
           </div>
         </div>
-      ) : logSessionId ? (
-        <LogBrowser sessionId={logSessionId} characters={characters} />
       ) : (
-        <p style={{ color: 'var(--color-text-muted)' }}>セッションIDを入力してください。</p>
+        <LogBrowser characters={characters} />
       )}
     </div>
   );

@@ -179,7 +179,7 @@
   F9.1〜F9.4が4体構成でも破綻なく表示されること（キャラクターカラー4色の同時表示、Relationship Matrixの6ペア表示等）をブラウザで確認する。
   テスト: 手動確認。
 
-- [ ] **T33. ログ閲覧画面のセッション一覧表示**
+- [x] **T33. ログ閲覧画面のセッション一覧表示**
   ユーザー要望により追加。現状`GET /api/sessions`の一覧取得エンドポイントが無く、`LogBrowser`はセッションIDを手入力する方式になっている。`architecture.md` 7章に`GET /api/sessions`（セッション一覧。id/createdAt/status/participantIds等を返す）を追加し、`data-design.md`のsessionsテーブル定義と整合させる。`packages/ui`の`LogBrowser`（`class-design.md` 14章）は、セッションID手入力欄をセッション一覧（クリックで選択、表示中のセッションをハイライト）に置き換える。`features.md` F9.4の記述もこの変更に合わせて更新する。
   テスト: 一覧APIのHTTPテスト（`packages/server`）。UIのセッション一覧表示・クリック選択のコンポーネントテスト（`packages/ui`）。
 

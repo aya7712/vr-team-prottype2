@@ -58,6 +58,12 @@ export class SessionService {
     return this.sessionRepository.findById(id);
   }
 
+  // T33（F9.4）: ログ閲覧画面のセッション一覧表示に使う。新しいセッションが先頭に
+  // 来るよう作成日時の降順で返す（`SessionRepository.list()`は昇順のため並び替える）。
+  listSessions(): SessionRecord[] {
+    return [...this.sessionRepository.list()].reverse();
+  }
+
   // T17時点ではステータス遷移のみ。実際の会話生成ループはTurnOrchestrator（T18）が
   // ConversationManager.runSessionを呼び出して行う。
   run(id: string): SessionRecord | null {

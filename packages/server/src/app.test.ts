@@ -64,6 +64,28 @@ describe('REST API（architecture.md 7章）', () => {
     });
   });
 
+  describe('GET /api/sessions', () => {
+    it('作成日時の降順でセッション一覧を返す', async () => {
+      const first = await request(app)
+        .post('/api/sessions')
+        .send({ participantIds: ['char_a', 'char_b'] });
+      const second = await request(app)
+        .post('/api/sessions')
+        .send({ participantIds: ['char_a', 'char_c'] });
+
+      const res = await request(app).get('/api/sessions');
+
+      expect(res.status).toBe(200);
+      expect(res.body.map((s: { id: string }) => s.id)).toEqual([second.body.id, first.body.id]);
+    });
+
+    it('セッションが無ければ空配列を返す', async () => {
+      const res = await request(app).get('/api/sessions');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([]);
+    });
+  });
+
   describe('GET /api/sessions/:id', () => {
     it('作成済みセッションを取得できる', async () => {
       const created = await request(app)

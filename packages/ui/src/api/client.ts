@@ -89,6 +89,10 @@ export const apiClient = {
     return request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify(input) });
   },
 
+  listSessions(): Promise<Session[]> {
+    return request<Session[]>('/api/sessions');
+  },
+
   getSession(sessionId: string): Promise<Session> {
     return request<Session>(`/api/sessions/${sessionId}`);
   },

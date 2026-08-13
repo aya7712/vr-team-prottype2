@@ -5,7 +5,7 @@ import type { SessionService } from '../services/SessionService.js';
 import type { TurnOrchestrator } from '../services/TurnOrchestrator.js';
 import { getParam } from './params.js';
 
-/** `POST/GET /api/sessions`, `/run`, `/stop`（architecture.md 7章）。 */
+/** `POST/GET /api/sessions`, `GET /api/sessions`（一覧、T33）, `/run`, `/stop`（architecture.md 7章）。 */
 export function createSessionsRouter(
   sessionService: SessionService,
   turnOrchestrator: TurnOrchestrator,
@@ -23,6 +23,10 @@ export function createSessionsRouter(
       }
       throw err;
     }
+  });
+
+  router.get('/', (_req: Request, res: Response) => {
+    res.status(200).json(sessionService.listSessions());
   });
 
   router.get('/:id', (req: Request, res: Response) => {

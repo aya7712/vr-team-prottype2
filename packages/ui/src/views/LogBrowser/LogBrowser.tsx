@@ -7,7 +7,13 @@ import type {
   RelationshipLayerPayload,
   TopicLayerPayload,
 } from '@prottype2/engine';
-import type { CharacterSummary, LayerEventRecord, Turn, TurnDetail } from '../../api/client';
+import type {
+  CharacterSummary,
+  LayerEventRecord,
+  Session,
+  Turn,
+  TurnDetail,
+} from '../../api/client';
 import { apiClient } from '../../api/client';
 import { ChatBubble } from '../../components/ChatBubble';
 import { CharacterStateCard } from '../../components/CharacterStateCard';
@@ -16,11 +22,11 @@ import { MemoryList } from '../../components/MemoryList';
 import { PromptViewer } from '../../components/PromptViewer';
 import { RelationshipMatrix } from '../../components/RelationshipMatrix';
 import { ScoreBreakdownTable } from '../../components/ScoreBreakdownTable';
+import { SessionList } from '../../components/SessionList';
 import { StatBar } from '../../components/StatBar';
 import { TopicTreeGraph } from '../../components/TopicTreeGraph';
 
 export interface LogBrowserProps {
-  sessionId: string;
   characters: CharacterSummary[];
 }
 
@@ -45,17 +51,31 @@ function resolveCharacter(characters: CharacterSummary[], id: string): Character
 }
 
 /**
- * F9.4 ログ閲覧（`class-design.md` 14章）。過去ターンの一覧から選択したターンについて、
- * F9.2/F9.3で使ったのと同じ表示コンポーネント（`CharacterStateCard`, `TopicTreeGraph`,
- * `RelationshipMatrix`, `ScoreBreakdownTable`, `PromptViewer`等）をREST経由のデータで再利用する。
+ * F9.4 ログ閲覧（`class-design.md` 14章）。セッション一覧から選択したセッションの
+ * 過去ターン一覧、さらに選択したターンについて、F9.2/F9.3で使ったのと同じ表示
+ * コンポーネント（`CharacterStateCard`, `TopicTreeGraph`, `RelationshipMatrix`,
+ * `ScoreBreakdownTable`, `PromptViewer`等）をREST経由のデータで再利用する（T33）。
  */
-export function LogBrowser({ sessionId, characters }: LogBrowserProps) {
+export function LogBrowser({ characters }: LogBrowserProps) {
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [turns, setTurns] = useState<Turn[]>([]);
   const [selectedTurnNo, setSelectedTurnNo] = useState<number | null>(null);
   const [detail, setDetail] = useState<TurnDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    apiClient
+      .listSessions()
+      .then(setSessions)
+      .catch((err: unknown) => setError(String(err)));
+  }, []);
+
+  useEffect(() => {
+    if (sessionId === null) {
+      setTurns([]);
+      return;
+    }
     setTurns([]);
     setSelectedTurnNo(null);
     setDetail(null);
@@ -66,7 +86,7 @@ export function LogBrowser({ sessionId, characters }: LogBrowserProps) {
   }, [sessionId]);
 
   useEffect(() => {
-    if (selectedTurnNo === null) {
+    if (sessionId === null || selectedTurnNo === null) {
       setDetail(null);
       return;
     }
@@ -91,9 +111,23 @@ export function LogBrowser({ sessionId, characters }: LogBrowserProps) {
 
   return (
     <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'flex-start' }}>
+      <div style={{ minWidth: 180 }}>
+        <h2 style={{ fontSize: 14 }}>セッション一覧</h2>
+        <SessionList
+          sessions={sessions}
+          selectedSessionId={sessionId}
+          onSelect={setSessionId}
+          characters={characters}
+        />
+      </div>
+
       <div style={{ minWidth: 160 }}>
         <h2 style={{ fontSize: 14 }}>ターン一覧</h2>
-        {turns.length === 0 ? (
+        {sessionId === null ? (
+          <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
+            セッションを選択してください。
+          </p>
+        ) : turns.length === 0 ? (
           <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>ターンがありません。</p>
         ) : (
           <ul style={{ listStyle: 'none', margin: 0, padding: 0, fontSize: 12 }}>
@@ -141,7 +175,7 @@ export function LogBrowser({ sessionId, characters }: LogBrowserProps) {
 
             <section>
               <h2 style={{ fontSize: 14 }}>評価</h2>
-              <FeedbackForm sessionId={sessionId} turnNo={detail.turnNo} />
+              <FeedbackForm sessionId={detail.sessionId} turnNo={detail.turnNo} />
             </section>
 
             <section>
