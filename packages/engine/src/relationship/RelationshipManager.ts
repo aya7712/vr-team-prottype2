@@ -19,6 +19,12 @@ export class RelationshipManager {
     private readonly addressBook: AddressBookEntry[],
   ) {}
 
+  // T31で追加: ConversationManagerがターン結果をRelationshipUpdaterへ渡す際に
+  // 更新対象のグラフを参照するために必要（F2.4）。
+  getGraph(): RelationshipGraph {
+    return this.graph;
+  }
+
   resolve(speakerId: string, targetId: string): RelationshipContext {
     const edge = this.graph.getEdge(speakerId, targetId);
     const addressTerm =

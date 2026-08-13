@@ -12,6 +12,7 @@ import { IntentUpdater } from '../character/IntentUpdater.js';
 import { SpeakingStyleResolver } from '../character/SpeakingStyleResolver.js';
 import { RelationshipGraph } from '../relationship/RelationshipGraph.js';
 import { RelationshipManager } from '../relationship/RelationshipManager.js';
+import { RelationshipUpdater } from '../relationship/RelationshipUpdater.js';
 import { TopicClassifier } from '../topic/TopicClassifier.js';
 import { TopicParameterUpdater } from '../topic/TopicParameterUpdater.js';
 import { TopicContinuationScorer } from '../topic/TopicContinuationScorer.js';
@@ -82,7 +83,7 @@ function makeConversationManager(
   llmResponses: string[],
   eventBus?: EngineEventBus,
   characterLlmConfigs?: Partial<Record<'char_a' | 'char_b', CharacterDefRecord['llm']>>,
-): { manager: ConversationManager; llmClient: LlmClient } {
+): { manager: ConversationManager; llmClient: LlmClient; relationshipGraph: RelationshipGraph } {
   const relationshipGraph = new RelationshipGraph();
   relationshipGraph.addEdge({
     characterId: 'char_a',
@@ -146,9 +147,10 @@ function makeConversationManager(
     new SpeakerSelector(),
     new EndConditionEvaluator(),
     new TopicBranchMerger(),
+    new RelationshipUpdater(),
     eventBus,
   );
-  return { manager, llmClient };
+  return { manager, llmClient, relationshipGraph };
 }
 
 function makeSessionState(): SessionState {
@@ -190,6 +192,25 @@ describe('ConversationManager', () => {
     expect(first.speakerId).toBe('char_a');
     expect(second.speakerId).toBe('char_b');
     expect(third.speakerId).toBe('char_a');
+  });
+
+  // T31: 4体・50ターンのE2E結合テストで、RelationshipUpdaterがConversationManagerの
+  // ターン実行フローに配線されておらずtrust/intimacyが更新されない不具合が発覚したため、
+  // 回帰防止のテストを追加した。
+  it('runTurnを繰り返すとRelationshipGraphのtrust/intimacyが更新される（F2.4）', async () => {
+    const { manager, relationshipGraph } = makeConversationManager(['「わかるよ、それ」']);
+    const sessionState = makeSessionState();
+    const before = relationshipGraph.getEdge('char_a', 'char_b');
+
+    // DialogueActは確率的に選ばれ、topicShift/fillSilenceはtrust/intimacyのdeltaが
+    // 0のため、1ターンだけでは変化が起きないことがある。複数ターン実行して
+    // 「RelationshipUpdaterが全く配線されていない」不具合（T31で発覚）を検出する。
+    for (let i = 0; i < 10; i++) {
+      await manager.runTurn(sessionState);
+    }
+
+    const after = relationshipGraph.getEdge('char_a', 'char_b');
+    expect(after).not.toEqual(before);
   });
 
   it('runSessionはmaxTurns分のTurnResultを例外なく生成する', async () => {

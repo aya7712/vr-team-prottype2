@@ -7,6 +7,7 @@ import {
   IntentUpdater,
   SpeakingStyleResolver,
   RelationshipManager,
+  RelationshipUpdater,
   buildRelationshipGraphFromCharacterDefs,
   TopicClassifier,
   TopicParameterUpdater,
@@ -195,6 +196,7 @@ export class TurnOrchestrator {
       new SpeakerSelector(relationshipManager),
       new EndConditionEvaluator(),
       new TopicBranchMerger(),
+      new RelationshipUpdater(),
       this.eventBus,
     );
   }

@@ -1,6 +1,7 @@
 import type { CharacterBrain } from '../character/CharacterBrain.js';
 import type { CharacterDefRecord } from '../data/types.js';
 import type { RelationshipManager } from '../relationship/RelationshipManager.js';
+import { RelationshipUpdater } from '../relationship/RelationshipUpdater.js';
 import type { MemoryRetriever } from '../memory/MemoryRetriever.js';
 import type { PromptBuilder, LlmClient, OutputParser } from '../llm/index.js';
 import type { TopicClassifier } from '../topic/TopicClassifier.js';
@@ -60,6 +61,11 @@ export class ConversationManager {
     private readonly speakerSelector: SpeakerSelector = new SpeakerSelector(relationshipManager),
     private readonly endConditionEvaluator: EndConditionEvaluator = new EndConditionEvaluator(),
     private readonly topicBranchMerger: TopicBranchMerger = new TopicBranchMerger(),
+    // T31で発見: RelationshipUpdater（F2.4、T06で実装済み）がConversationManagerの
+    // ターン実行フローに一度も配線されておらず、trust/intimacyが初期値のまま更新されない
+    // 不具合があった。4体・50ターンのE2E結合テスト（requirements.md 7.2）で
+    // 全6ペアのtrust/intimacyが変化しないことから発覚したため、ここで配線する。
+    private readonly relationshipUpdater: RelationshipUpdater = new RelationshipUpdater(),
     private readonly eventBus?: EngineEventBus,
   ) {}
 
@@ -173,6 +179,7 @@ export class ConversationManager {
       { speakerId, utterance, turnNo: nextTurnNo },
     ].slice(-5);
     sessionState.conversationStateManager.updateAfterTurn(act, topicScore);
+    this.relationshipUpdater.applyTurnResult(this.relationshipManager.getGraph(), result);
 
     this.eventBus?.emit('turn:complete', result);
     return result;

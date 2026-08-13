@@ -54,11 +54,15 @@ if (!CHARACTER_DEF_PATH) {
   throw new Error('e2eConversation: CHARACTER_DEF_PATHが設定されていません');
 }
 
-// 実行時引数: 参加キャラクターID2つ（省略時char_a, char_b）、ターン数（省略時50）
+// 実行時引数: 参加キャラクターID2〜4個（省略時char_a, char_b）、ターン数（省略時50）
+// T31（4体・結合テスト）でT19のスクリプトをそのまま2〜4体に一般化して使えるようにした。
 const args = process.argv.slice(2);
 const maxTurns = Number(args.find((a) => /^\d+$/.test(a)) ?? '50');
-const participantIds = args.filter((a) => !/^\d+$/.test(a));
-const [charA, charB] = participantIds.length === 2 ? participantIds : ['char_a', 'char_b'];
+const argParticipantIds = args.filter((a) => !/^\d+$/.test(a));
+const participantIds =
+  argParticipantIds.length >= 2 && argParticipantIds.length <= 4
+    ? argParticipantIds
+    : ['char_a', 'char_b'];
 
 async function main(): Promise<void> {
   const db = new Database(':memory:');
@@ -85,9 +89,9 @@ async function main(): Promise<void> {
   await cacheSyncService.sync();
 
   const sessionService = new SessionService(sessionRepository, characterCacheRepository);
-  const session = sessionService.createSession({ participantIds: [charA, charB] });
+  const session = sessionService.createSession({ participantIds });
   console.log(
-    `[e2e] セッション作成: ${session.id} participants=${charA},${charB} maxTurns=${maxTurns}`,
+    `[e2e] セッション作成: ${session.id} participants=${participantIds.join(',')} maxTurns=${maxTurns}`,
   );
 
   const eventBus = new EngineEventBus();
@@ -105,17 +109,52 @@ async function main(): Promise<void> {
   const acts = new Set<string>();
   const topicIds: string[] = [];
   let memoryReferencedCount = 0;
+  // T31（requirements.md 7.2）: 発話機会の分配・名指し誘導・関係性破綻の有無を
+  // 目視確認するための集計をT19のスクリプトに追加した。
+  const speakerCounts = new Map<string, number>();
+  // ConversationManagerはtargetIdsを常に1件配列で埋めるため「名指しの有無」自体は
+  // 全ターンで真になり指標として意味を持たない。代わりに「誰が誰に名指しされたか」の
+  // 分布（被名指し回数）を集計し、特定キャラへの偏りが無いかを目視確認する。
+  const targetedCounts = new Map<string, number>();
+  const relationshipRanges = new Map<
+    string,
+    { minTrust: number; maxTrust: number; minIntimacy: number; maxIntimacy: number }
+  >();
 
   eventBus.on('layer:memory', (payload) => {
     const { retrieved } = payload as { retrieved: unknown[] };
     if (retrieved.length > 0) memoryReferencedCount++;
   });
+  eventBus.on('layer:relationship', (payload) => {
+    const { speakerId, targetId, edge } = payload as {
+      speakerId: string;
+      targetId: string;
+      edge: { trust: number; intimacy: number };
+    };
+    const key = [speakerId, targetId].sort().join(':');
+    const range = relationshipRanges.get(key) ?? {
+      minTrust: edge.trust,
+      maxTrust: edge.trust,
+      minIntimacy: edge.intimacy,
+      maxIntimacy: edge.intimacy,
+    };
+    range.minTrust = Math.min(range.minTrust, edge.trust);
+    range.maxTrust = Math.max(range.maxTrust, edge.trust);
+    range.minIntimacy = Math.min(range.minIntimacy, edge.intimacy);
+    range.maxIntimacy = Math.max(range.maxIntimacy, edge.intimacy);
+    relationshipRanges.set(key, range);
+  });
   eventBus.on('turn:complete', (payload) => {
     const turn = payload as TurnResult;
     acts.add(turn.dialogueAct);
     if (topicIds[topicIds.length - 1] !== turn.topicId) topicIds.push(turn.topicId);
+    speakerCounts.set(turn.speakerId, (speakerCounts.get(turn.speakerId) ?? 0) + 1);
+    for (const targetId of turn.targetIds ?? []) {
+      targetedCounts.set(targetId, (targetedCounts.get(targetId) ?? 0) + 1);
+    }
     console.log(
-      `[turn ${turn.turnNo}] ${turn.speakerId} (${turn.dialogueAct}, topic=${turn.topicId}): ${turn.utterance}`,
+      `[turn ${turn.turnNo}] ${turn.speakerId}→${turn.targetIds?.join(',') ?? '(全員)'} ` +
+        `(${turn.dialogueAct}, topic=${turn.topicId}): ${turn.utterance}`,
     );
   });
 
@@ -125,9 +164,23 @@ async function main(): Promise<void> {
 
   console.log('\n[e2e] 完了。');
   console.log(`- 経過時間: ${elapsedSec}秒`);
+  console.log(`- 参加者: ${participantIds.join(', ')}`);
   console.log(`- 出現したDialogue Act種別数: ${acts.size} (${[...acts].join(', ')})`);
   console.log(`- 話題転換回数（トピック切り替わり）: ${Math.max(0, topicIds.length - 1)}`);
   console.log(`- 記憶(memory)が1件以上取得されたターン数: ${memoryReferencedCount}`);
+  console.log(
+    `- 発話機会の分配: ${[...speakerCounts.entries()].map(([id, n]) => `${id}=${n}`).join(', ')}`,
+  );
+  console.log(
+    `- 被名指し（targetIds）回数の分布: ${[...targetedCounts.entries()].map(([id, n]) => `${id}=${n}`).join(', ')}`,
+  );
+  console.log(`- 関係性（trust/intimacy）のペアごとの推移範囲（${relationshipRanges.size}ペア）:`);
+  for (const [key, range] of relationshipRanges) {
+    console.log(
+      `  ${key}: trust ${range.minTrust.toFixed(2)}〜${range.maxTrust.toFixed(2)} / ` +
+        `intimacy ${range.minIntimacy.toFixed(2)}〜${range.maxIntimacy.toFixed(2)}`,
+    );
+  }
 
   db.close();
 }
