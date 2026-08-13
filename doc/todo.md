@@ -127,7 +127,7 @@
   `ui-design-rules.md` 2〜3章に従い、Vite+Reactプロジェクトを`packages/ui`に構築し、CSS変数によるニュートラルカラーパレット（ライト/ダーク対応）とタイポグラフィの基本スタイルを定義する。`getReadableTextColor`ユーティリティ関数を実装する。
   テスト: `getReadableTextColor`のユニットテスト（複数の背景色パターンでのコントラスト判定）。ビルドが通ることを確認する。
 
-- [ ] **T21. WebSocket購読フック・REST APIクライアント**
+- [x] **T21. WebSocket購読フック・REST APIクライアント**
   `class-design.md` 14章に従い、`useEngineEvents`フックと`api/client.ts`を実装する。
   テスト: モックWebSocketサーバーに対する接続・イベント受信のユニットテストを書く。
 
