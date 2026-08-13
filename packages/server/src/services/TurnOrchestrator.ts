@@ -25,6 +25,7 @@ import {
   OutputParser,
   SpeakerSelector,
   EndConditionEvaluator,
+  TopicBranchMerger,
   ConversationManager,
 } from '@prottype2/engine';
 import type {
@@ -193,6 +194,7 @@ export class TurnOrchestrator {
       characterDefMap,
       new SpeakerSelector(relationshipManager),
       new EndConditionEvaluator(),
+      new TopicBranchMerger(),
       this.eventBus,
     );
   }

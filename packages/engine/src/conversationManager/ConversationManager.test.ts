@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ConversationManager } from './ConversationManager.js';
 import { SpeakerSelector } from './SpeakerSelector.js';
 import { EndConditionEvaluator } from './EndConditionEvaluator.js';
+import { TopicBranchMerger } from './TopicBranchMerger.js';
 import type { SessionState } from './types.js';
 import { EngineEventBus } from '../logging/EngineEventBus.js';
 import { CharacterBrain } from '../character/CharacterBrain.js';
@@ -144,6 +145,7 @@ function makeConversationManager(
     characterDefs,
     new SpeakerSelector(),
     new EndConditionEvaluator(),
+    new TopicBranchMerger(),
     eventBus,
   );
   return { manager, llmClient };

@@ -16,6 +16,7 @@ import type { RelationshipContext } from '../relationship/types.js';
 import type { MemoryItem } from '../types/memory.js';
 import { SpeakerSelector } from './SpeakerSelector.js';
 import { EndConditionEvaluator } from './EndConditionEvaluator.js';
+import { TopicBranchMerger } from './TopicBranchMerger.js';
 import type { SessionState } from './types.js';
 
 // 直前ターンのDialogueActをTopicイベントへ変換する対応表（features.md F4.3）。
@@ -58,6 +59,7 @@ export class ConversationManager {
     private readonly characterDefs: Map<string, CharacterDefRecord>,
     private readonly speakerSelector: SpeakerSelector = new SpeakerSelector(relationshipManager),
     private readonly endConditionEvaluator: EndConditionEvaluator = new EndConditionEvaluator(),
+    private readonly topicBranchMerger: TopicBranchMerger = new TopicBranchMerger(),
     private readonly eventBus?: EngineEventBus,
   ) {}
 
@@ -205,16 +207,36 @@ export class ConversationManager {
       topic = existing;
     } else if (classification.kind === 'child') {
       const parentId = classification.parentTopicId;
-      topic = {
-        id: crypto.randomUUID(),
-        parentTopicId: parentId,
-        label: classification.suggestedLabel,
-        depth: sessionState.topicTree.computeDepth(parentId),
-        energy: 0.5,
-        novelty: 0.5,
-        life: 0.5,
-        unresolved: false,
-      };
+      // F6.3（T30）は3〜4体会話向けの機能（class-design.md 9章）であり、2体会話では
+      // 話者・対象のペアが常に参加者全員と一致し「サブグループへの分岐」が意味を持たない。
+      // そのため参加者が3名以上の場合のみ`TopicBranchMerger.branch`でparticipantIdsを
+      // 付与し、2体会話ではT12時点までと同じ（participantIds無し）Topicを作る
+      // （実装者判断、implementation-rules.md 9章）。合流（merge）判定の自動実行は
+      // runTurnには組み込まず、TopicBranchMerger単体の機能として提供するにとどめる。
+      // merge時にTopicツリーから古いTopicを取り除く仕様がfeatures.md/class-design.mdで
+      // 未確定であり、既存の複数ターンテストを不用意に変えるリスクがあるため。
+      if (sessionState.participantIds.length > 2) {
+        const parentTopic = sessionState.topicTree.getTopic(parentId);
+        if (!parentTopic) {
+          throw new Error(`ConversationManager: 親Topic "${parentId}" が見つかりません`);
+        }
+        topic = this.topicBranchMerger.branch(
+          parentTopic,
+          [speakerId, targetId],
+          classification.suggestedLabel,
+        );
+      } else {
+        topic = {
+          id: crypto.randomUUID(),
+          parentTopicId: parentId,
+          label: classification.suggestedLabel,
+          depth: sessionState.topicTree.computeDepth(parentId),
+          energy: 0.5,
+          novelty: 0.5,
+          life: 0.5,
+          unresolved: false,
+        };
+      }
       sessionState.topicTree.addTopic(topic);
     } else {
       topic = {
