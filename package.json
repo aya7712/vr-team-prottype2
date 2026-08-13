@@ -11,6 +11,7 @@
   "scripts": {
     "prepare": "husky",
     "build": "npm run build --workspaces --if-present",
+    "dev": "concurrently -n server,ui -c blue,green \"npm run dev --workspace packages/server\" \"npm run dev --workspace packages/ui\"",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^8.18.0",
     "@typescript-eslint/parser": "^8.18.0",
+    "concurrently": "^10.0.4",
     "eslint": "^9.17.0",
     "eslint-config-prettier": "^9.1.0",
     "husky": "^9.1.7",
