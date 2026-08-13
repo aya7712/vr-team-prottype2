@@ -2,6 +2,12 @@ const ENDPOINT = 'https://api.together.xyz/v1/embeddings';
 // TogetherClient.tsと同様の理由で60秒に延長（T19）。
 const TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 1;
+// TogetherClient.tsと同様の理由で、リトライ前に5秒待機する（T19）。
+const RETRY_DELAY_MS = 5_000;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // Together AIのembeddingsモデルはfeatures.md/architecture.mdに既定値の指定が
 // 無いため実装者判断で選定した（chat completionsのgoogle/gemma-3n-E4B-itと
@@ -39,6 +45,9 @@ export class EmbeddingClient {
   async embed(text: string): Promise<Float32Array> {
     let lastError: unknown;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        await delay(RETRY_DELAY_MS);
+      }
       try {
         return await this.requestOnce(text);
       } catch (err) {

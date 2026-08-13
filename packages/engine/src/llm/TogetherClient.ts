@@ -6,7 +6,15 @@ const ENDPOINT = 'https://api.together.xyz/v1/chat/completions';
 // 判明したため60秒に延長した。
 const TIMEOUT_MS = 60_000;
 const MAX_RETRIES = 1;
+// T19の50ターンE2Eで、Together AI側の一時的な500エラーが連続して発生し、
+// リトライ間隔なしでは1回のリトライも同じ理由で失敗するケースが確認されたため、
+// リトライ前に5秒待機して回復を待つ。
+const RETRY_DELAY_MS = 5_000;
 const DEFAULT_MODEL = 'google/gemma-3n-E4B-it';
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -25,7 +33,7 @@ function extractContent(data: unknown): string {
   return first.message.content;
 }
 
-/** Together AI chat completions呼び出し（F7.2）。architecture.md 9章に従い1回リトライ・10秒タイムアウト。 */
+/** Together AI chat completions呼び出し（F7.2）。architecture.md 9章に従い1回リトライ・60秒タイムアウト・5秒間隔。 */
 export class TogetherClient implements LlmClient {
   constructor(
     private readonly apiKey: string,
@@ -38,6 +46,9 @@ export class TogetherClient implements LlmClient {
   ): Promise<string> {
     let lastError: unknown;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      if (attempt > 0) {
+        await delay(RETRY_DELAY_MS);
+      }
       try {
         return await this.requestOnce(prompt, options);
       } catch (err) {
