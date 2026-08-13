@@ -23,5 +23,8 @@ export interface SessionState {
   turnNo: number;
   previousAct?: DialogueAct;
   previousSpeakerId?: string;
+  // T29: SpeakerSelectorの「名指し/呼びかけ」判定に使う。直前ターンの発話が
+  // 誰に向けられていたか（TurnResult.targetIds）をそのまま引き継ぐ。
+  previousTargetIds?: string[];
   recentUtterances: RecentUtterance[];
 }

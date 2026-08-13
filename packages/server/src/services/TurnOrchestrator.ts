@@ -191,7 +191,7 @@ export class TurnOrchestrator {
       this.llmClient,
       new OutputParser(),
       characterDefMap,
-      new SpeakerSelector(),
+      new SpeakerSelector(relationshipManager),
       new EndConditionEvaluator(),
       this.eventBus,
     );

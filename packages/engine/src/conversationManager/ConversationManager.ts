@@ -56,19 +56,29 @@ export class ConversationManager {
     private readonly llmClient: LlmClient,
     private readonly outputParser: OutputParser,
     private readonly characterDefs: Map<string, CharacterDefRecord>,
-    private readonly speakerSelector: SpeakerSelector = new SpeakerSelector(),
+    private readonly speakerSelector: SpeakerSelector = new SpeakerSelector(relationshipManager),
     private readonly endConditionEvaluator: EndConditionEvaluator = new EndConditionEvaluator(),
     private readonly eventBus?: EngineEventBus,
   ) {}
 
   async runTurn(sessionState: SessionState): Promise<TurnResult> {
-    const speakerId = this.speakerSelector.selectNext(
-      sessionState.participantIds,
-      sessionState.previousSpeakerId,
-    );
-    const targetId = sessionState.participantIds.find((id) => id !== speakerId);
+    const speakerId = this.speakerSelector.selectNext({
+      participantIds: sessionState.participantIds,
+      previousSpeakerId: sessionState.previousSpeakerId,
+      previousTargetIds: sessionState.previousTargetIds,
+      recentSpeakerIds: sessionState.recentUtterances.map((u) => u.speakerId),
+      characterStates: new Map(
+        [...this.characterBrains.entries()].map(([id, brain]) => [id, brain.getState()]),
+      ),
+    });
+    // 話しかける相手はT29時点では「直前の話者」をデフォルトとする（自然な返答の宛先として
+    // 最も妥当なため）。3〜4体構成での話しかけ相手の高度な決定（複数人への同時発話等）は
+    // F6.2の範囲外（Speaker Selectionは「誰が話すか」の決定であり「誰に話すか」は別課題）
+    // として扱う（実装者判断、implementation-rules.md 9章）。
+    const targetId =
+      sessionState.previousSpeakerId ?? sessionState.participantIds.find((id) => id !== speakerId);
     if (!targetId) {
-      throw new Error('ConversationManager: 2体構成には話者と異なるtargetIdが必要です');
+      throw new Error('ConversationManager: 話者と異なるtargetIdが必要です');
     }
 
     const nextTurnNo = sessionState.turnNo + 1;
@@ -155,6 +165,7 @@ export class ConversationManager {
     sessionState.turnNo = nextTurnNo;
     sessionState.previousAct = act;
     sessionState.previousSpeakerId = speakerId;
+    sessionState.previousTargetIds = result.targetIds;
     sessionState.recentUtterances = [
       ...sessionState.recentUtterances,
       { speakerId, utterance, turnNo: nextTurnNo },
