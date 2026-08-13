@@ -115,7 +115,7 @@
   `class-design.md` 13章に従い、`TurnOrchestrator`が`ConversationManager.runSession`を実行しつつ`turns`/`turn_layer_events`へ永続化し、`ws/gateway.ts`が`EngineEventBus`のイベントをWebSocketでブロードキャストすることを実装する。
   テスト: WebSocketクライアントを模擬し、`POST /run`実行中に`architecture.md` 7章のイベント一覧が想定順序で届くことを確認する。
 
-- [ ] **T19. 2体・50ターン結合テスト**
+- [x] **T19. 2体・50ターン結合テスト**
   実際に`google/gemma-3n-E4B-it`を使い、2キャラクターで50ターンの会話を生成するE2Eスクリプトを作成する（自動テストではなく手動実行スクリプトでよい）。`requirements.md` 7.1の成功基準（Dialogue Actの多様性、共有記憶の参照、話題転換が3回以上、後半のドリフトがないこと等）を目視確認し、結果をメモとして残す。
   テスト: スクリプト実行と結果目視確認。問題があれば該当TODOへ差し戻して修正する。
 
@@ -178,6 +178,10 @@
 - [ ] **T32. UIの4体対応確認**
   F9.1〜F9.4が4体構成でも破綻なく表示されること（キャラクターカラー4色の同時表示、Relationship Matrixの6ペア表示等）をブラウザで確認する。
   テスト: 手動確認。
+
+- [ ] **T33. topic_idがほぼ毎ターン変化する挙動の調査・対応**
+  T19の50ターンE2E実行（`doc/t19_5turn_smoke_and_50turn_log.md`）で、会話内容としては同じ話題が数ターン継続しているように見えるにもかかわらず、`turn:complete`イベントの`topicId`がほぼ毎ターン変化していることが確認された（50ターン中49回topic_idが変化）。`TopicTree`/`TopicClassifier`/`ConversationStateManager`（`class-design.md` 7章、T08）周りの実装を確認し、これが「1発話ごとに新しいTopicノードを作る」設計上の意図した挙動なのか、話題継続の判定ロジックの不具合なのかを切り分ける。不具合であれば修正し、意図した設計であれば`requirements.md` 7.1の「話題転換が3回以上、頻繁すぎないこと」という基準との整合を`class-design.md`/`data-design.md`に明記する。
+  テスト: `TopicClassifier`/`TopicContinuationScorer`の話題継続判定について、同一話題が継続すべき入力パターンでの期待値をユニットテストで確認する。必要であればT19のE2Eスクリプトを再実行し、`topicId`の変化回数が改善したことを確認する。
 
 ---
 
