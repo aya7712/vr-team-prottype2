@@ -79,6 +79,8 @@ describe('LogBrowser', () => {
     await waitFor(() => expect(screen.getByText('それは大変だったね')).toBeInTheDocument());
     expect(screen.getAllByText('empathy').length).toBeGreaterThan(0);
     expect(screen.getByText('これはプロンプト')).toBeInTheDocument();
+    expect(screen.getByText('評価')).toBeInTheDocument();
+    expect(screen.getByText('自然')).toBeInTheDocument();
   });
 
   it('ターンが無い場合はプレースホルダーを表示する', async () => {

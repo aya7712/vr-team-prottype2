@@ -11,6 +11,7 @@ import type { CharacterSummary, LayerEventRecord, Turn, TurnDetail } from '../..
 import { apiClient } from '../../api/client';
 import { ChatBubble } from '../../components/ChatBubble';
 import { CharacterStateCard } from '../../components/CharacterStateCard';
+import { FeedbackForm } from '../../components/FeedbackForm';
 import { MemoryList } from '../../components/MemoryList';
 import { PromptViewer } from '../../components/PromptViewer';
 import { RelationshipMatrix } from '../../components/RelationshipMatrix';
@@ -137,6 +138,11 @@ export function LogBrowser({ sessionId, characters }: LogBrowserProps) {
               dialogueAct={detail.dialogueAct}
               utterance={detail.utterance}
             />
+
+            <section>
+              <h2 style={{ fontSize: 14 }}>評価</h2>
+              <FeedbackForm sessionId={sessionId} turnNo={detail.turnNo} />
+            </section>
 
             <section>
               <h2 style={{ fontSize: 14 }}>Character State</h2>
