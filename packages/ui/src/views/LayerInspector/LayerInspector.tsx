@@ -1,3 +1,4 @@
+import { MemoryList } from '../../components/MemoryList';
 import { PromptViewer } from '../../components/PromptViewer';
 import { ScoreBreakdownTable } from '../../components/ScoreBreakdownTable';
 import { useEngineEvents } from '../../state/useEngineEvents';
@@ -58,18 +59,7 @@ export function LayerInspector({ wsUrl }: LayerInspectorProps) {
 
       <section>
         <h2 style={{ fontSize: 14 }}>Memory Retriever</h2>
-        {memoryEvent && memoryEvent.payload.retrieved.length > 0 ? (
-          <ul style={{ margin: 0, paddingLeft: 'var(--space-2)', fontSize: 12 }}>
-            {memoryEvent.payload.retrieved.map((memory) => (
-              <li key={memory.id}>
-                [{memory.shareable ? 'Shared' : 'Self'}] {memory.summary}（重要度{' '}
-                {memory.importance.toFixed(2)}）
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p style={{ color: 'var(--color-text-muted)' }}>想起された記憶はありません。</p>
-        )}
+        <MemoryList items={memoryEvent?.payload.retrieved ?? []} />
       </section>
 
       <section>
