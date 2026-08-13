@@ -18,6 +18,16 @@ describe('apiClient', () => {
     vi.unstubAllGlobals();
   });
 
+  it('listCharactersはGET /api/charactersを呼びキャラクター一覧を返す', async () => {
+    const characters = [{ id: 'char_a', name: 'char_a', furigana: null, color: '#FFC20E' }];
+    mockFetch(200, characters);
+
+    const result = await apiClient.listCharacters();
+
+    expect(result).toEqual(characters);
+    expect(fetch).toHaveBeenCalledWith('/api/characters', expect.anything());
+  });
+
   it('createSessionはPOST /api/sessionsを呼びレスポンスを返す', async () => {
     const session = {
       id: 's1',

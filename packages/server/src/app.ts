@@ -13,6 +13,7 @@ import { SessionService } from './services/SessionService.js';
 import { TurnOrchestrator } from './services/TurnOrchestrator.js';
 import { createSessionsRouter } from './routes/sessions.js';
 import { createTurnsRouter } from './routes/turns.js';
+import { createCharactersRouter } from './routes/characters.js';
 
 export interface CreateAppOptions {
   llmClient: LlmClient;
@@ -49,6 +50,7 @@ export function createApp(db: Database.Database, options: CreateAppOptions): Exp
   app.use(express.json());
   app.locals.eventBus = eventBus;
 
+  app.use('/api/characters', createCharactersRouter(characterCacheRepository));
   app.use('/api/sessions', createSessionsRouter(sessionService, turnOrchestrator));
   app.use(
     '/api/sessions/:id/turns',

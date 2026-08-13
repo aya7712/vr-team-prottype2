@@ -1,6 +1,13 @@
 import type Database from 'better-sqlite3';
 import type { CharacterDefRecord, SubCharacterRecord, MemoryItem } from '@prottype2/engine';
 
+export interface CharacterSummary {
+  id: string;
+  name: string;
+  furigana: string | null;
+  color: string;
+}
+
 /**
  * `CharacterDefLoader`（T04）の出力を`characters_cache`等へ書き込む（data-design.md 4.1）。
  * 起動時に呼ばれ、キャッシュテーブルを都度洗い替える（DELETE→INSERT）。
@@ -10,6 +17,14 @@ export class CharacterCacheRepository {
 
   exists(id: string): boolean {
     return this.db.prepare('SELECT 1 FROM characters_cache WHERE id = ?').get(id) !== undefined;
+  }
+
+  // UIのキャラクター一覧表示（F9.1〜F9.4、`ui-design-rules.md` 2.2の`color`取得元）向けの
+  // 最小projection。フルレコードはfindByIdsを使う。
+  listSummaries(): CharacterSummary[] {
+    return this.db
+      .prepare('SELECT id, name, furigana, color FROM characters_cache ORDER BY id')
+      .all() as CharacterSummary[];
   }
 
   // characters_cache/character_relationships_cacheからCharacterDefRecordを再構成する

@@ -46,6 +46,14 @@ export interface CreateSessionRequest {
   scenario?: unknown;
 }
 
+// `ui-design-rules.md` 2.2: キャラクターカラーはこの一覧が唯一の情報源。
+export interface CharacterSummary {
+  id: string;
+  name: string;
+  furigana: string | null;
+  color: string;
+}
+
 export class ApiError extends Error {
   constructor(
     public readonly status: number,
@@ -73,6 +81,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** `architecture.md` 7章のREST APIを呼び出す薄いクライアント（`class-design.md` 14章）。 */
 export const apiClient = {
+  listCharacters(): Promise<CharacterSummary[]> {
+    return request<CharacterSummary[]>('/api/characters');
+  },
+
   createSession(input: CreateSessionRequest): Promise<Session> {
     return request<Session>('/api/sessions', { method: 'POST', body: JSON.stringify(input) });
   },

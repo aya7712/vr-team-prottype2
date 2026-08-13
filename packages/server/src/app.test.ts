@@ -241,4 +241,17 @@ describe('REST API（architecture.md 7章）', () => {
       expect(res.status).toBe(404);
     });
   });
+
+  describe('GET /api/characters', () => {
+    it('キャッシュ済みキャラクターの一覧（id/name/furigana/color）を返す', async () => {
+      const res = await request(app).get('/api/characters');
+
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual([
+        { id: 'char_a', name: 'char_a', furigana: null, color: '#000000' },
+        { id: 'char_b', name: 'char_b', furigana: null, color: '#000000' },
+        { id: 'char_c', name: 'char_c', furigana: null, color: '#000000' },
+      ]);
+    });
+  });
 });
