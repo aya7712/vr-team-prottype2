@@ -179,7 +179,19 @@
   F9.1〜F9.4が4体構成でも破綻なく表示されること（キャラクターカラー4色の同時表示、Relationship Matrixの6ペア表示等）をブラウザで確認する。
   テスト: 手動確認。
 
-- [ ] **T33. topic_idがほぼ毎ターン変化する挙動の調査・対応**
+- [ ] **T33. ログ閲覧画面のセッション一覧表示**
+  ユーザー要望により追加。現状`GET /api/sessions`の一覧取得エンドポイントが無く、`LogBrowser`はセッションIDを手入力する方式になっている。`architecture.md` 7章に`GET /api/sessions`（セッション一覧。id/createdAt/status/participantIds等を返す）を追加し、`data-design.md`のsessionsテーブル定義と整合させる。`packages/ui`の`LogBrowser`（`class-design.md` 14章）は、セッションID手入力欄をセッション一覧（クリックで選択、表示中のセッションをハイライト）に置き換える。`features.md` F9.4の記述もこの変更に合わせて更新する。
+  テスト: 一覧APIのHTTPテスト（`packages/server`）。UIのセッション一覧表示・クリック選択のコンポーネントテスト（`packages/ui`）。
+
+- [ ] **T34. リアルタイム画面からのターン数指定でのセッション開始**
+  ユーザー要望により追加。現状UIにはセッション作成・開始のUIが無く、`POST /api/sessions`・`POST /api/sessions/:id/run`は外部（curl等）から呼ぶことでしか動作確認できていない（T27/T32参照）。`packages/ui`のリアルタイム画面（`ConversationView`周辺）に、参加キャラクター選択・ターン数入力・開始ボタンを持つセッション作成フォームを追加し、`apiClient.createSession`→`apiClient.runSession`を呼び出せるようにする。`features.md` F6.6・`class-design.md` 14章の記載に反映する。
+  テスト: フォーム入力→送信のコンポーネントテスト（APIモック）。`npm run dev`で実際にUIからセッションを作成・開始できることをブラウザで確認する。
+
+- [ ] **T35. 会話生成時の最初のトピック必須指定**
+  ユーザー要望により追加。現状セッション作成時に初期トピックの指定が無く、`ConversationManager`は1発話目を「(会話開始)」という固定プレースホルダーから`TopicClassifier`に分類させている。セッション作成時（`POST /api/sessions`）に最初のトピック（文字列、必須）を受け取れるようにし、`SessionRecord`/DBの`sessions`テーブル（`data-design.md`）に保持する。`ConversationManager`は`SessionState`の`TopicTree`をこの初期トピックで初期化した状態から`runTurn`を開始するよう変更する（`resolveTopic`が「(会話開始)」プレースホルダーに頼らないようにする）。`features.md` F6.6・`class-design.md` 9章に反映する。UIはT34のセッション作成フォームに初期トピック入力欄を追加し必須にする。T33のセッション一覧には各セッションの初期トピックも表示する。
+  テスト: 初期トピック未指定時に`POST /api/sessions`が400を返すテスト。`ConversationManager`が指定した初期トピックから会話を開始する（1発話目の`topicId`が初期Topicと一致する、または初期Topicの子として分類される）ことを確認するユニットテスト。UIのフォームで初期トピックが必須項目として機能することのコンポーネントテスト。
+
+- [ ] **T36. topic_idがほぼ毎ターン変化する挙動の調査・対応**
   T19の50ターンE2E実行（`doc/t19_5turn_smoke_and_50turn_log.md`）で、会話内容としては同じ話題が数ターン継続しているように見えるにもかかわらず、`turn:complete`イベントの`topicId`がほぼ毎ターン変化していることが確認された（50ターン中49回topic_idが変化）。`TopicTree`/`TopicClassifier`/`ConversationStateManager`（`class-design.md` 7章、T08）周りの実装を確認し、これが「1発話ごとに新しいTopicノードを作る」設計上の意図した挙動なのか、話題継続の判定ロジックの不具合なのかを切り分ける。不具合であれば修正し、意図した設計であれば`requirements.md` 7.1の「話題転換が3回以上、頻繁すぎないこと」という基準との整合を`class-design.md`/`data-design.md`に明記する。
   テスト: `TopicClassifier`/`TopicContinuationScorer`の話題継続判定について、同一話題が継続すべき入力パターンでの期待値をユニットテストで確認する。必要であればT19のE2Eスクリプトを再実行し、`topicId`の変化回数が改善したことを確認する。
 
