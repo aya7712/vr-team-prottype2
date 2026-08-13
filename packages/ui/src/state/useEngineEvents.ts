@@ -3,10 +3,15 @@ import type { LayerEvent } from '@prottype2/engine';
 
 export type ConnectionStatus = 'connecting' | 'open' | 'closed';
 
+// イベント名ごとに対応するペイロード型へ絞り込めるよう、`Record`ではなくマップ型で定義する。
+export type LatestLayerEventByName = {
+  [Name in LayerEvent['name']]?: Extract<LayerEvent, { name: Name }>;
+};
+
 export interface UseEngineEventsResult {
   status: ConnectionStatus;
   events: LayerEvent[];
-  latestByName: Partial<Record<LayerEvent['name'], LayerEvent>>;
+  latestByName: LatestLayerEventByName;
 }
 
 interface WireMessage {
@@ -31,9 +36,7 @@ function isWireMessage(value: unknown): value is WireMessage {
 export function useEngineEvents(url: string): UseEngineEventsResult {
   const [status, setStatus] = useState<ConnectionStatus>('connecting');
   const [events, setEvents] = useState<LayerEvent[]>([]);
-  const [latestByName, setLatestByName] = useState<Partial<Record<LayerEvent['name'], LayerEvent>>>(
-    {},
-  );
+  const [latestByName, setLatestByName] = useState<LatestLayerEventByName>({});
   const socketRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {

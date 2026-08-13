@@ -139,7 +139,7 @@
   `features.md` F9.2、`ui-design-rules.md` 2.2の該当ルールに従い、キャラクター別状態カード・ConversationState表示・Topicツリー・Relationship Matrixを実装する。
   テスト: モックデータでのコンポーネントテスト。ブラウザでの目視確認。
 
-- [ ] **T24. レイヤー別計算過程ビュー（F9.3）**
+- [x] **T24. レイヤー別計算過程ビュー（F9.3）**
   `features.md` F9.3、`ui-design-rules.md` 5章に従い、Dialogue Actスコア内訳テーブル・選択Actのハイライト・折りたたみ式プロンプトビューアを実装する。
   テスト: モックデータでのコンポーネントテスト。ブラウザでの目視確認。
 

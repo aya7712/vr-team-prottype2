@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { CharacterSummary } from './api/client';
 import { apiClient } from './api/client';
 import { ConversationView } from './views/ConversationView';
+import { LayerInspector } from './views/LayerInspector';
 import { ParameterDashboard } from './views/ParameterDashboard';
 
 function buildWsUrl(): string {
@@ -26,8 +27,17 @@ export function App() {
         <div style={{ flex: 1, minWidth: 0 }}>
           <ConversationView wsUrl={wsUrl} characters={characters} />
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: 'var(--space-3)',
+          }}
+        >
           <ParameterDashboard wsUrl={wsUrl} characters={characters} />
+          <LayerInspector wsUrl={wsUrl} />
         </div>
       </div>
     </div>
