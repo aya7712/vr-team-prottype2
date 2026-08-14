@@ -15,6 +15,7 @@ const sessions = [
     participantIds: ['char_a', 'char_b'],
     createdAt: '2026-08-13T00:00:00.000Z',
     status: 'completed' as const,
+    initialTopic: '夏祭りの思い出',
   },
 ];
 

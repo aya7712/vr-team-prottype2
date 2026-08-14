@@ -161,6 +161,7 @@ function makeSessionState(): SessionState {
     conversationStateManager: new ConversationStateManager(new RhythmTracker()),
     turnNo: 0,
     recentUtterances: [],
+    initialTopic: '最初の話題',
   };
 }
 
@@ -179,6 +180,23 @@ describe('ConversationManager', () => {
     expect(result.dialogueAct).toBeDefined();
     expect(result.utterance).toBe('やったー！');
     expect(result.createdAt).toBeDefined();
+  });
+
+  it('T35: 1発話目のTopicはSessionState.initialTopicから開始する', async () => {
+    const { manager } = makeConversationManager(['「やったー！」']);
+    const sessionState = makeSessionState();
+    sessionState.initialTopic = '夏祭りの思い出';
+
+    const result = await manager.runTurn(sessionState);
+
+    const topic = sessionState.topicTree.getTopic(result.topicId);
+    expect(topic).toBeDefined();
+    // TopicClassifierは文字bigramのJaccard係数による類似度判定のため、
+    // initialTopicと完全一致する発話がなければ「同一Topic」判定にはならず
+    // 新規または子Topicとして分類されうる。いずれにせよ最初のTopicの
+    // ラベルはinitialTopicそのものであること（「(会話開始)」プレースホルダーに
+    // 依存していないこと）を確認する。
+    expect(topic?.label).toBe('夏祭りの思い出');
   });
 
   it('runTurnを繰り返すと発話者が交互に切り替わる（2体会話）', async () => {

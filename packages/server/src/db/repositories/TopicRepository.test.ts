@@ -33,6 +33,7 @@ describe('TopicRepository', () => {
       scenario: {},
       participantIds: ['char_a', 'char_b'],
       status: 'running',
+      initialTopic: 'テスト話題',
     });
   }
 

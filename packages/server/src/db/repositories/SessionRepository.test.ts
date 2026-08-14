@@ -20,9 +20,11 @@ describe('SessionRepository', () => {
       scenario: { theme: '雑談' },
       participantIds: ['char_a', 'char_b'],
       status: 'running',
+      initialTopic: '夏祭りの思い出',
     });
 
     expect(created.id).toBe('session_1');
+    expect(created.initialTopic).toBe('夏祭りの思い出');
     const found = repo.findById('session_1');
     expect(found).toEqual(created);
   });
@@ -43,6 +45,7 @@ describe('SessionRepository', () => {
       scenario: {},
       participantIds: ['char_a', 'char_b'],
       status: 'running',
+      initialTopic: '雑談',
     });
 
     repo.updateStatus('session_1', 'completed');
@@ -53,8 +56,20 @@ describe('SessionRepository', () => {
     db = new Database(':memory:');
     migrate(db);
     const repo = new SessionRepository(db);
-    repo.create({ id: 'session_1', scenario: {}, participantIds: ['char_a'], status: 'running' });
-    repo.create({ id: 'session_2', scenario: {}, participantIds: ['char_b'], status: 'running' });
+    repo.create({
+      id: 'session_1',
+      scenario: {},
+      participantIds: ['char_a'],
+      status: 'running',
+      initialTopic: '話題1',
+    });
+    repo.create({
+      id: 'session_2',
+      scenario: {},
+      participantIds: ['char_b'],
+      status: 'running',
+      initialTopic: '話題2',
+    });
 
     const sessions = repo.list();
     expect(sessions.map((s) => s.id)).toEqual(['session_1', 'session_2']);

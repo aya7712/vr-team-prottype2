@@ -72,7 +72,7 @@ describe('WebSocket Gateway × TurnOrchestrator（T18統合）', () => {
     const createRes = await fetch(`${baseUrl}/api/sessions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ participantIds: ['char_a', 'char_b'] }),
+      body: JSON.stringify({ participantIds: ['char_a', 'char_b'], initialTopic: 'テスト話題' }),
     });
     const session = (await createRes.json()) as { id: string };
 

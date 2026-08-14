@@ -197,7 +197,8 @@ export class ConversationManager {
   }
 
   private resolveTopic(sessionState: SessionState, speakerId: string, targetId: string): Topic {
-    const lastUtterance = sessionState.recentUtterances.at(-1)?.utterance ?? '(会話開始)';
+    const lastUtterance =
+      sessionState.recentUtterances.at(-1)?.utterance ?? sessionState.initialTopic;
     const classification = this.topicClassifier.classify(
       lastUtterance,
       sessionState.topicTree,

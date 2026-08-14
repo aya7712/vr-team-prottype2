@@ -169,7 +169,7 @@ Turn Logger（SQLiteへ書き込み: F8.1）
 | メソッド/パス | 用途 |
 |---|---|
 | `GET /api/characters` | キャラクター一覧（id/name/furigana/color）取得。`ui-design-rules.md` 2.2のキャラクターカラー取得元としてUIが利用する（T22で追加） |
-| `POST /api/sessions` | 新規会話セッション作成（参加キャラクター2〜4体、シナリオ設定を受付：F6.6） |
+| `POST /api/sessions` | 新規会話セッション作成（参加キャラクター2〜4体、最初のトピック（必須、T35）、シナリオ設定を受付：F6.6） |
 | `GET /api/sessions` | セッション一覧取得（作成日時降順）。ログ閲覧画面（F9.4）のセッション選択に使う（T33で追加） |
 | `GET /api/sessions/:id` | セッション情報取得 |
 | `GET /api/sessions/:id/turns` | 過去ターンログ一覧取得（F9.4） |

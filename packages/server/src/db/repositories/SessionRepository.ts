@@ -7,6 +7,7 @@ interface SessionRow {
   participant_ids_json: string;
   created_at: string;
   status: SessionStatus;
+  initial_topic: string;
 }
 
 function rowToSession(row: SessionRow): SessionRecord {
@@ -16,6 +17,7 @@ function rowToSession(row: SessionRow): SessionRecord {
     participantIds: JSON.parse(row.participant_ids_json) as string[],
     createdAt: row.created_at,
     status: row.status,
+    initialTopic: row.initial_topic,
   };
 }
 
@@ -28,8 +30,8 @@ export class SessionRepository {
     this.db
       .prepare(
         `
-        INSERT INTO sessions (id, scenario_json, participant_ids_json, created_at, status)
-        VALUES (@id, @scenarioJson, @participantIdsJson, @createdAt, @status)
+        INSERT INTO sessions (id, scenario_json, participant_ids_json, created_at, status, initial_topic)
+        VALUES (@id, @scenarioJson, @participantIdsJson, @createdAt, @status, @initialTopic)
       `,
       )
       .run({
@@ -38,6 +40,7 @@ export class SessionRepository {
         participantIdsJson: JSON.stringify(input.participantIds),
         createdAt,
         status: input.status,
+        initialTopic: input.initialTopic,
       });
 
     return {
@@ -46,6 +49,7 @@ export class SessionRepository {
       participantIds: input.participantIds,
       createdAt,
       status: input.status,
+      initialTopic: input.initialTopic,
     };
   }
 

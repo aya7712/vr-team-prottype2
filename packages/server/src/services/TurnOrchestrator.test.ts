@@ -50,6 +50,7 @@ describe('TurnOrchestrator', () => {
       scenario: {},
       participantIds: ['char_a', 'char_b'],
       status: 'stopped',
+      initialTopic: 'テスト話題',
     });
 
     const orchestrator = new TurnOrchestrator(
@@ -128,6 +129,7 @@ describe('TurnOrchestrator', () => {
       scenario: {},
       participantIds: ['char_a', 'char_b'],
       status: 'stopped',
+      initialTopic: 'テスト話題',
     });
     await orchestrator.start(session2.id, 1);
 

@@ -41,25 +41,44 @@ describe('REST API（architecture.md 7章）', () => {
     it('参加キャラクター2体でセッションを作成できる', async () => {
       const res = await request(app)
         .post('/api/sessions')
-        .send({ participantIds: ['char_a', 'char_b'], scenario: { theme: '雑談' } });
+        .send({
+          participantIds: ['char_a', 'char_b'],
+          scenario: { theme: '雑談' },
+          initialTopic: '夏祭りの思い出',
+        });
 
       expect(res.status).toBe(201);
       expect(res.body.id).toBeDefined();
       expect(res.body.status).toBe('stopped');
       expect(res.body.participantIds).toEqual(['char_a', 'char_b']);
+      expect(res.body.initialTopic).toBe('夏祭りの思い出');
     });
 
     it('参加キャラクターが1体だけだと400を返す', async () => {
       const res = await request(app)
         .post('/api/sessions')
-        .send({ participantIds: ['char_a'] });
+        .send({ participantIds: ['char_a'], initialTopic: 'テスト話題' });
       expect(res.status).toBe(400);
     });
 
     it('存在しないキャラクターIDが含まれると400を返す', async () => {
       const res = await request(app)
         .post('/api/sessions')
-        .send({ participantIds: ['char_a', 'char_unknown'] });
+        .send({ participantIds: ['char_a', 'char_unknown'], initialTopic: 'テスト話題' });
+      expect(res.status).toBe(400);
+    });
+
+    it('T35: initialTopic未指定だと400を返す', async () => {
+      const res = await request(app)
+        .post('/api/sessions')
+        .send({ participantIds: ['char_a', 'char_b'] });
+      expect(res.status).toBe(400);
+    });
+
+    it('T35: initialTopicが空文字だと400を返す', async () => {
+      const res = await request(app)
+        .post('/api/sessions')
+        .send({ participantIds: ['char_a', 'char_b'], initialTopic: '   ' });
       expect(res.status).toBe(400);
     });
   });
@@ -68,10 +87,10 @@ describe('REST API（architecture.md 7章）', () => {
     it('作成日時の降順でセッション一覧を返す', async () => {
       const first = await request(app)
         .post('/api/sessions')
-        .send({ participantIds: ['char_a', 'char_b'] });
+        .send({ participantIds: ['char_a', 'char_b'], initialTopic: 'テスト話題' });
       const second = await request(app)
         .post('/api/sessions')
-        .send({ participantIds: ['char_a', 'char_c'] });
+        .send({ participantIds: ['char_a', 'char_c'], initialTopic: 'テスト話題' });
 
       const res = await request(app).get('/api/sessions');
 
@@ -90,7 +109,7 @@ describe('REST API（architecture.md 7章）', () => {
     it('作成済みセッションを取得できる', async () => {
       const created = await request(app)
         .post('/api/sessions')
-        .send({ participantIds: ['char_a', 'char_b'] });
+        .send({ participantIds: ['char_a', 'char_b'], initialTopic: 'テスト話題' });
 
       const res = await request(app).get(`/api/sessions/${created.body.id}`);
       expect(res.status).toBe(200);
@@ -107,7 +126,7 @@ describe('REST API（architecture.md 7章）', () => {
     it('runでstatusがrunningになり、stopでstoppedに戻る', async () => {
       const created = await request(app)
         .post('/api/sessions')
-        .send({ participantIds: ['char_a', 'char_b'] });
+        .send({ participantIds: ['char_a', 'char_b'], initialTopic: 'テスト話題' });
       const sessionId = created.body.id;
 
       // maxTurns:1でバックグラウンド実行を短時間に抑え、次のstopとの競合を避ける
@@ -138,7 +157,7 @@ describe('REST API（architecture.md 7章）', () => {
     it('ターンが無いセッションは空配列を返す', async () => {
       const created = await request(app)
         .post('/api/sessions')
-        .send({ participantIds: ['char_a', 'char_b'] });
+        .send({ participantIds: ['char_a', 'char_b'], initialTopic: 'テスト話題' });
 
       const res = await request(app).get(`/api/sessions/${created.body.id}/turns`);
       expect(res.status).toBe(200);
@@ -148,7 +167,7 @@ describe('REST API（architecture.md 7章）', () => {
     it('作成済みのターンを一覧取得できる', async () => {
       const created = await request(app)
         .post('/api/sessions')
-        .send({ participantIds: ['char_a', 'char_b'] });
+        .send({ participantIds: ['char_a', 'char_b'], initialTopic: 'テスト話題' });
       const sessionId = created.body.id;
 
       db.prepare(
@@ -176,7 +195,7 @@ describe('REST API（architecture.md 7章）', () => {
     it('特定ターンの詳細をレイヤーイベント込みで取得できる', async () => {
       const created = await request(app)
         .post('/api/sessions')
-        .send({ participantIds: ['char_a', 'char_b'] });
+        .send({ participantIds: ['char_a', 'char_b'], initialTopic: 'テスト話題' });
       const sessionId = created.body.id;
 
       db.prepare(
@@ -202,7 +221,7 @@ describe('REST API（architecture.md 7章）', () => {
     it('存在しないターン番号は404を返す', async () => {
       const created = await request(app)
         .post('/api/sessions')
-        .send({ participantIds: ['char_a', 'char_b'] });
+        .send({ participantIds: ['char_a', 'char_b'], initialTopic: 'テスト話題' });
 
       const res = await request(app).get(`/api/sessions/${created.body.id}/turns/99`);
       expect(res.status).toBe(404);
@@ -211,7 +230,7 @@ describe('REST API（architecture.md 7章）', () => {
     it('turnNoが正の整数でない場合は400を返す', async () => {
       const created = await request(app)
         .post('/api/sessions')
-        .send({ participantIds: ['char_a', 'char_b'] });
+        .send({ participantIds: ['char_a', 'char_b'], initialTopic: 'テスト話題' });
 
       const res = await request(app).get(`/api/sessions/${created.body.id}/turns/abc`);
       expect(res.status).toBe(400);
@@ -222,7 +241,7 @@ describe('REST API（architecture.md 7章）', () => {
     async function createSessionWithTurn() {
       const created = await request(app)
         .post('/api/sessions')
-        .send({ participantIds: ['char_a', 'char_b'] });
+        .send({ participantIds: ['char_a', 'char_b'], initialTopic: 'テスト話題' });
       const sessionId = created.body.id;
       db.prepare(
         `INSERT INTO topics (id, session_id, parent_topic_id, label, depth, energy, novelty, life, unresolved, created_at_turn)

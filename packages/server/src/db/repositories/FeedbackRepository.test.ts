@@ -20,6 +20,7 @@ describe('FeedbackRepository', () => {
       scenario: {},
       participantIds: ['char_a', 'char_b'],
       status: 'running',
+      initialTopic: 'テスト話題',
     });
     // turns.topic_idはtopics(id)を参照するFK制約があるため、先にtopicを1件用意する。
     db.prepare(

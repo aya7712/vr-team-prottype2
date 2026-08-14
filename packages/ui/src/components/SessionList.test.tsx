@@ -15,6 +15,7 @@ const sessions = [
     participantIds: ['char_a', 'char_b'],
     createdAt: '2026-08-13T00:00:00.000Z',
     status: 'stopped' as const,
+    initialTopic: '夏祭りの思い出',
   },
 ];
 
@@ -33,6 +34,19 @@ describe('SessionList', () => {
     const nameB = screen.getByText('つむぎ');
     expect(nameA).toHaveStyle({ color: '#FFC20E' });
     expect(nameB).toHaveStyle({ color: '#67be8d' });
+  });
+
+  it('T35: 各セッションの最初のトピックを表示する', () => {
+    render(
+      <SessionList
+        sessions={sessions}
+        selectedSessionId={null}
+        onSelect={vi.fn()}
+        characters={characters}
+      />,
+    );
+
+    expect(screen.getByText('夏祭りの思い出')).toBeInTheDocument();
   });
 
   it('クリックするとonSelectがセッションIDで呼ばれる', async () => {

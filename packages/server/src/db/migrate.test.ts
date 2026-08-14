@@ -131,6 +131,50 @@ describe('migrate', () => {
     expect(() => migrate(db)).not.toThrow();
   });
 
+  it('T35: sessionsテーブルにinitial_topicカラムが追加される', () => {
+    db = new Database(':memory:');
+    migrate(db);
+
+    const columns = getColumns(db, 'sessions').map((c) => c.name);
+    expect(columns).toContain('initial_topic');
+  });
+
+  it('T35: initial_topic追加前の旧スキーマDBに適用してもデータが失われず、カラムが追加される', () => {
+    db = new Database(':memory:');
+    // schema.sqlのCREATE TABLE定義だけを直接実行し、ALTER TABLEマイグレーション未適用の
+    // 「旧スキーマ」状態を再現する（migrate()を通さない）。
+    db.exec(`
+      CREATE TABLE sessions (
+        id                TEXT PRIMARY KEY,
+        scenario_json     TEXT NOT NULL,
+        participant_ids_json TEXT NOT NULL,
+        created_at        TEXT NOT NULL,
+        status            TEXT NOT NULL
+      );
+    `);
+    db.prepare(
+      'INSERT INTO sessions (id, scenario_json, participant_ids_json, created_at, status) VALUES (?, ?, ?, ?, ?)',
+    ).run('session_1', '{}', '["char_a"]', '2026-01-01T00:00:00.000Z', 'stopped');
+
+    migrate(db);
+
+    const columns = getColumns(db, 'sessions').map((c) => c.name);
+    expect(columns).toContain('initial_topic');
+    const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get('session_1') as {
+      id: string;
+      status: string;
+      initial_topic: string;
+    };
+    expect(row.id).toBe('session_1');
+    expect(row.status).toBe('stopped');
+    // 旧データはNOT NULL制約を満たすプレースホルダー値で埋められる
+    // （`SessionRecord.initialTopic`はnull不可の必須stringとして扱うため）。
+    expect(row.initial_topic).toBe('(不明)');
+
+    // 2回目の適用でも既に追加済みのカラムに対してALTER TABLEを再実行せず例外を投げない。
+    expect(() => migrate(db)).not.toThrow();
+  });
+
   it('openMigratedDatabaseはファイルを開いてマイグレーションを適用する', async () => {
     const { mkdtempSync, rmSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');

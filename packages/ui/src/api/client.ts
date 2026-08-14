@@ -8,6 +8,7 @@ export interface Session {
   participantIds: string[];
   createdAt: string;
   status: SessionStatus;
+  initialTopic: string;
 }
 
 export interface Turn {
@@ -44,6 +45,7 @@ export interface Feedback {
 export interface CreateSessionRequest {
   participantIds: string[];
   scenario?: unknown;
+  initialTopic: string;
 }
 
 // `ui-design-rules.md` 2.2: キャラクターカラーはこの一覧が唯一の情報源。

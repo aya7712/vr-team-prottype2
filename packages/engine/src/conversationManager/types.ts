@@ -27,4 +27,8 @@ export interface SessionState {
   // 誰に向けられていたか（TurnResult.targetIds）をそのまま引き継ぐ。
   previousTargetIds?: string[];
   recentUtterances: RecentUtterance[];
+  // T35: 会話開始時に必須指定する最初のトピック。resolveTopicが最初の発話の
+  // 分類対象として使い、「(会話開始)」プレースホルダーの代わりにこの文字列から
+  // TopicTreeを開始する。
+  initialTopic: string;
 }

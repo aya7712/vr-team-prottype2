@@ -439,6 +439,8 @@ export interface SessionState {
   previousAct?: DialogueAct;
   previousSpeakerId?: string;
   recentUtterances: { speakerId: string; utterance: string; turnNo: number }[];
+  initialTopic: string;  // T35で追加。1発話目のTopic分類はこの文字列を起点に行う
+                          // （「(会話開始)」プレースホルダーへの依存を廃止）
 }
 ```
 

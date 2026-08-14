@@ -8,6 +8,7 @@ const MAX_PARTICIPANTS = 4;
 export interface CreateSessionRequest {
   participantIds: string[];
   scenario?: unknown;
+  initialTopic?: string;
 }
 
 export class SessionValidationError extends Error {}
@@ -25,7 +26,7 @@ export class SessionService {
   ) {}
 
   createSession(request: CreateSessionRequest): SessionRecord {
-    const { participantIds, scenario } = request;
+    const { participantIds, scenario, initialTopic } = request;
 
     if (
       !Array.isArray(participantIds) ||
@@ -39,6 +40,9 @@ export class SessionService {
     if (new Set(participantIds).size !== participantIds.length) {
       throw new SessionValidationError('participantIdsに重複があります');
     }
+    if (typeof initialTopic !== 'string' || initialTopic.trim().length === 0) {
+      throw new SessionValidationError('initialTopicは必須です');
+    }
 
     for (const id of participantIds) {
       if (!this.characterCacheRepository.exists(id)) {
@@ -51,6 +55,7 @@ export class SessionService {
       scenario: scenario ?? null,
       participantIds,
       status: 'stopped',
+      initialTopic,
     });
   }
 

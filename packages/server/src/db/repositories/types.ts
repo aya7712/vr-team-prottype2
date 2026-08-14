@@ -10,6 +10,9 @@ export interface SessionRecord {
   participantIds: string[];
   createdAt: string;
   status: SessionStatus;
+  // T35: 会話開始時の最初のトピック（必須）。ConversationManagerが
+  // TopicTreeをこのトピックから開始するために使う。
+  initialTopic: string;
 }
 
 export interface CreateSessionInput {
@@ -17,6 +20,7 @@ export interface CreateSessionInput {
   scenario: unknown;
   participantIds: string[];
   status: SessionStatus;
+  initialTopic: string;
 }
 
 // `turns`テーブルに対応するレコード。フィールド構成はengineのTurnResult（types/turn.ts）と

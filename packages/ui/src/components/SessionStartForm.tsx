@@ -12,13 +12,14 @@ const MAX_PARTICIPANTS = 4;
 const DEFAULT_MAX_TURNS = 50;
 
 /**
- * F6.6 シナリオ入力（T34）。リアルタイム画面から参加キャラクター・ターン数を指定して
- * セッションを作成し（`POST /api/sessions`）、そのまま連続生成を開始する
- * （`POST /api/sessions/:id/run`）。
+ * F6.6 シナリオ入力（T34、T35で最初のトピック必須入力を追加）。リアルタイム画面から
+ * 参加キャラクター・最初のトピック・ターン数を指定してセッションを作成し
+ * （`POST /api/sessions`）、そのまま連続生成を開始する（`POST /api/sessions/:id/run`）。
  */
 export function SessionStartForm({ characters, onStarted }: SessionStartFormProps) {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [maxTurns, setMaxTurns] = useState(DEFAULT_MAX_TURNS);
+  const [initialTopic, setInitialTopic] = useState('');
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,6 +37,7 @@ export function SessionStartForm({ characters, onStarted }: SessionStartFormProp
     selectedIds.length >= MIN_PARTICIPANTS &&
     selectedIds.length <= MAX_PARTICIPANTS &&
     maxTurns >= 1 &&
+    initialTopic.trim().length > 0 &&
     !starting;
 
   const handleStart = async () => {
@@ -44,7 +46,10 @@ export function SessionStartForm({ characters, onStarted }: SessionStartFormProp
     setError(null);
     let createdSessionId: string | null = null;
     try {
-      const session = await apiClient.createSession({ participantIds: selectedIds });
+      const session = await apiClient.createSession({
+        participantIds: selectedIds,
+        initialTopic: initialTopic.trim(),
+      });
       createdSessionId = session.id;
       await apiClient.runSession(session.id, maxTurns);
       onStarted?.(session.id);
@@ -81,6 +86,18 @@ export function SessionStartForm({ characters, onStarted }: SessionStartFormProp
           </label>
         ))}
       </div>
+      <div style={{ marginBottom: 4 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+          最初のトピック
+          <input
+            type="text"
+            value={initialTopic}
+            onChange={(e) => setInitialTopic(e.target.value)}
+            placeholder="例: 夏祭りの思い出"
+            style={{ flex: 1 }}
+          />
+        </label>
+      </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
         <label style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
           ターン数
@@ -100,6 +117,11 @@ export function SessionStartForm({ characters, onStarted }: SessionStartFormProp
       {selectedIds.length > 0 && selectedIds.length < MIN_PARTICIPANTS && (
         <p style={{ color: 'var(--color-text-muted)', margin: '4px 0 0' }}>
           参加キャラクターは{MIN_PARTICIPANTS}体以上選択してください。
+        </p>
+      )}
+      {initialTopic.trim().length === 0 && (
+        <p style={{ color: 'var(--color-text-muted)', margin: '4px 0 0' }}>
+          最初のトピックは必須です。
         </p>
       )}
     </div>

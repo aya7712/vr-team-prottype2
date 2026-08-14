@@ -111,6 +111,7 @@ export class TurnOrchestrator {
         conversationStateManager: new ConversationStateManager(new RhythmTracker()),
         turnNo: 0,
         recentUtterances: [],
+        initialTopic: session.initialTopic,
       };
 
       for await (const _turn of manager.runSession(sessionState, maxTurns)) {

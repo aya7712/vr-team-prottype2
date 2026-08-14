@@ -187,7 +187,7 @@
   ユーザー要望により追加。現状UIにはセッション作成・開始のUIが無く、`POST /api/sessions`・`POST /api/sessions/:id/run`は外部（curl等）から呼ぶことでしか動作確認できていない（T27/T32参照）。`packages/ui`のリアルタイム画面（`ConversationView`周辺）に、参加キャラクター選択・ターン数入力・開始ボタンを持つセッション作成フォームを追加し、`apiClient.createSession`→`apiClient.runSession`を呼び出せるようにする。`features.md` F6.6・`class-design.md` 14章の記載に反映する。
   テスト: フォーム入力→送信のコンポーネントテスト（APIモック）。`npm run dev`で実際にUIからセッションを作成・開始できることをブラウザで確認する。
 
-- [ ] **T35. 会話生成時の最初のトピック必須指定**
+- [x] **T35. 会話生成時の最初のトピック必須指定**
   ユーザー要望により追加。現状セッション作成時に初期トピックの指定が無く、`ConversationManager`は1発話目を「(会話開始)」という固定プレースホルダーから`TopicClassifier`に分類させている。セッション作成時（`POST /api/sessions`）に最初のトピック（文字列、必須）を受け取れるようにし、`SessionRecord`/DBの`sessions`テーブル（`data-design.md`）に保持する。`ConversationManager`は`SessionState`の`TopicTree`をこの初期トピックで初期化した状態から`runTurn`を開始するよう変更する（`resolveTopic`が「(会話開始)」プレースホルダーに頼らないようにする）。`features.md` F6.6・`class-design.md` 9章に反映する。UIはT34のセッション作成フォームに初期トピック入力欄を追加し必須にする。T33のセッション一覧には各セッションの初期トピックも表示する。
   **スキーマ変更の扱い**: `sessions`テーブルへのカラム追加が必要になる。現行の`migrate.ts`は`CREATE TABLE IF NOT EXISTS`のみで既存テーブルへの`ALTER TABLE`に対応していないため（ユーザー確認済み、2026-08-13）、`schema_version`管理付きのバージョン管理された`ALTER TABLE`方式の簡易マイグレーション機構を`migrate.ts`に追加し、既存の`data/engine.sqlite`（確認用データ）を保持したままカラムを追加できるようにする。以後のスキーマ変更でもこの機構を使い、確認用データの削除は行わない。
   テスト: 初期トピック未指定時に`POST /api/sessions`が400を返すテスト。`ConversationManager`が指定した初期トピックから会話を開始する（1発話目の`topicId`が初期Topicと一致する、または初期Topicの子として分類される）ことを確認するユニットテスト。UIのフォームで初期トピックが必須項目として機能することのコンポーネントテスト。マイグレーション機構については、旧スキーマのDBファイルに対して適用してもデータが失われずカラムが追加されることを確認するテストを書く。

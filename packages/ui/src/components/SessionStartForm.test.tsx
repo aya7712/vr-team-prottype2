@@ -30,12 +30,23 @@ describe('SessionStartForm', () => {
     render(<SessionStartForm characters={characters} />);
 
     await userEvent.click(screen.getByText('ひまり'));
+    await userEvent.type(screen.getByLabelText('最初のトピック'), '夏祭りの思い出');
 
     expect(screen.getByText('会話を開始')).toBeDisabled();
     expect(screen.getByText(/2体以上選択してください/)).toBeInTheDocument();
   });
 
-  it('2体選択してターン数を指定すると、セッション作成→開始APIを呼ぶ', async () => {
+  it('T35: 最初のトピック未入力では開始ボタンが無効', async () => {
+    render(<SessionStartForm characters={characters} />);
+
+    await userEvent.click(screen.getByText('ひまり'));
+    await userEvent.click(screen.getByText('つむぎ'));
+
+    expect(screen.getByText('会話を開始')).toBeDisabled();
+    expect(screen.getByText(/最初のトピックは必須です/)).toBeInTheDocument();
+  });
+
+  it('2体選択・最初のトピックを入力してターン数を指定すると、セッション作成→開始APIを呼ぶ', async () => {
     mockFetchSequence([
       {
         status: 201,
@@ -45,6 +56,7 @@ describe('SessionStartForm', () => {
           participantIds: ['char_a', 'char_b'],
           createdAt: 'x',
           status: 'stopped',
+          initialTopic: '夏祭りの思い出',
         },
       },
       {
@@ -55,6 +67,7 @@ describe('SessionStartForm', () => {
           participantIds: ['char_a', 'char_b'],
           createdAt: 'x',
           status: 'running',
+          initialTopic: '夏祭りの思い出',
         },
       },
     ]);
@@ -64,6 +77,7 @@ describe('SessionStartForm', () => {
 
     await userEvent.click(screen.getByText('ひまり'));
     await userEvent.click(screen.getByText('つむぎ'));
+    await userEvent.type(screen.getByLabelText('最初のトピック'), '夏祭りの思い出');
     const turnsInput = screen.getByLabelText('ターン数');
     await userEvent.clear(turnsInput);
     await userEvent.type(turnsInput, '10');
@@ -75,7 +89,10 @@ describe('SessionStartForm', () => {
       '/api/sessions',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ participantIds: ['char_a', 'char_b'] }),
+        body: JSON.stringify({
+          participantIds: ['char_a', 'char_b'],
+          initialTopic: '夏祭りの思い出',
+        }),
       }),
     );
     expect(fetch).toHaveBeenNthCalledWith(
@@ -97,6 +114,7 @@ describe('SessionStartForm', () => {
         participantIds: ['char_a', 'char_b'],
         createdAt: 'x',
         status: 'stopped',
+        initialTopic: '夏祭りの思い出',
       }),
     });
     fn.mockResolvedValueOnce({
@@ -111,6 +129,7 @@ describe('SessionStartForm', () => {
 
     await userEvent.click(screen.getByText('ひまり'));
     await userEvent.click(screen.getByText('つむぎ'));
+    await userEvent.type(screen.getByLabelText('最初のトピック'), '夏祭りの思い出');
     await userEvent.click(screen.getByText('会話を開始'));
 
     await waitFor(() =>

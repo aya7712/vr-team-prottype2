@@ -65,6 +65,7 @@ export function SessionList({
                 );
               })}
             </div>
+            <div>{session.initialTopic}</div>
             <div style={{ color: 'var(--color-text-muted)' }}>
               {session.status} / {new Date(session.createdAt).toLocaleString('ja-JP')}
             </div>
