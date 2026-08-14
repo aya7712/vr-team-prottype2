@@ -35,6 +35,7 @@ import type {
   TurnResult,
   LayerEventName,
   Topic,
+  EmbeddingService,
 } from '@prottype2/engine';
 import type { SessionRepository } from '../db/repositories/SessionRepository.js';
 import type { TurnRepository } from '../db/repositories/TurnRepository.js';
@@ -86,6 +87,10 @@ export class TurnOrchestrator {
     private readonly topicRepository: TopicRepository,
     private readonly llmClient: LlmClient,
     private readonly eventBus: EngineEventBus,
+    // T15で実装済みのEmbeddingServiceをTopicClassifierの意味的類似度判定に使う
+    // （doc/todo.md T36の2026-08-14追記）。未注入時はTopicClassifierがJaccard係数に
+    // フォールバックするため、既存呼び出し元との後方互換のためoptionalにする。
+    private readonly embeddingService?: EmbeddingService,
   ) {}
 
   async start(sessionId: string, maxTurns: number = DEFAULT_MAX_TURNS): Promise<void> {
@@ -183,7 +188,7 @@ export class TurnOrchestrator {
     const promptBuilder = new PromptBuilder(new PromptTemplateLoader(resolveEnginePromptsPath()));
 
     return new ConversationManager(
-      new TopicClassifier(),
+      new TopicClassifier(this.embeddingService),
       new TopicParameterUpdater(),
       new TopicContinuationScorer(),
       relationshipManager,

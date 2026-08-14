@@ -104,6 +104,7 @@ async function main(): Promise<void> {
     topicRepository,
     llmClient,
     eventBus,
+    embeddingService,
   );
 
   const acts = new Set<string>();

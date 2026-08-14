@@ -316,17 +316,23 @@ topic/
 
 ```typescript
 export class TopicClassifier {
-  // T08時点ではEmbeddingService（F7、T15で実装予定）が未実装のため依存に含めない。
-  // 意味的類似度は文字bigramのJaccard係数による暫定計算とし（doc/todo.md T08）、
-  // T15で埋め込みベースの計算に差し替える際にembeddingServiceを追加する。
-  // RelationshipManager（T06実装済み）も、関連度判定ロジック自体がT08未着手で
+  // T36（2026-08-14）: T15で実装済みのEmbeddingService（F7、Together AI Embeddings API）を
+  // 注入可能にし、注入時はutteranceと既存Topic.labelの埋め込みベクトルのコサイン類似度で
+  // same/child/new判定を行う。未注入時は文字bigramのJaccard係数（doc/todo.md T08時点の
+  // 暫定実装）にフォールバックする（テスト等、意味的類似度が不要な場面向け）。
+  // RelationshipManager（T06実装済み）も、関連度判定ロジック自体が未着手で
   // 使い道が無いため依存から外している。関連度判定を実装する後続TODOで追加する。
-  constructor() {}
+  constructor(embeddingService?: EmbeddingService) {}
 
-  // 意味的類似度＋関係性記憶を加味した3段階判定 (F4.2)
-  classify(utterance: string, tree: TopicTree, speakerId: string, targetId: string): TopicClassificationResult;
+  // 意味的類似度＋関係性記憶を加味した3段階判定 (F4.2)。
+  // embeddingServiceを使った類似度計算は非同期I/Oのためasyncメソッドとする。
+  async classify(utterance: string, tree: TopicTree, speakerId: string, targetId: string): Promise<TopicClassificationResult>;
 }
+```
 
+`Topic.label`は発話全文ではなく、発話の最初の一文（句読点まで、最大20文字）に短縮したものを保持する（T36）。既存Topic全件についてembeddingServiceを呼び出す設計だが、`MemoryRetriever`（F3.4、T15）と同様にプロトタイプ規模のデータ量では全件走査で十分と判断し、キャッシュは設けていない。
+
+```typescript
 export class TopicParameterUpdater {
   // 質問された/笑った/新情報/共感/同じ話/否定された/長く続いた 等のイベントから
   // energy/novelty/life を更新する (F4.3)

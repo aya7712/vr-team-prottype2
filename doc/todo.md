@@ -194,7 +194,15 @@
 
 - [ ] **T36. topic_idがほぼ毎ターン変化する挙動の調査・対応**
   T19の50ターンE2E実行（`doc/t19_5turn_smoke_and_50turn_log.md`）で、会話内容としては同じ話題が数ターン継続しているように見えるにもかかわらず、`turn:complete`イベントの`topicId`がほぼ毎ターン変化していることが確認された（50ターン中49回topic_idが変化）。`TopicTree`/`TopicClassifier`/`ConversationStateManager`（`class-design.md` 7章、T08）周りの実装を確認し、これが「1発話ごとに新しいTopicノードを作る」設計上の意図した挙動なのか、話題継続の判定ロジックの不具合なのかを切り分ける。不具合であれば修正し、意図した設計であれば`requirements.md` 7.1の「話題転換が3回以上、頻繁すぎないこと」という基準との整合を`class-design.md`/`data-design.md`に明記する。
-  テスト: `TopicClassifier`/`TopicContinuationScorer`の話題継続判定について、同一話題が継続すべき入力パターンでの期待値をユニットテストで確認する。必要であればT19のE2Eスクリプトを再実行し、`topicId`の変化回数が改善したことを確認する。
+
+  **2026-08-14追記（配信ログ目視レビューにより判明）**: 実データ（`data/engine.sqlite`の`topics`テーブル）を確認したところ、原因は`TopicClassifier`（`packages/engine/src/topic/TopicClassifier.ts`）の暫定実装にあることが特定できた。
+  - `classify()`が`same`/`child`いずれの場合も`suggestedLabel: utterance`として**発話全文をそのままlabelに設定**しており、要約・抽象化を行っていない。
+  - 類似度判定が**文字bigramのJaccard係数**（同ファイルのコメントで「T15で埋め込みベースの意味的類似度に差し替える暫定実装」と明記）のままであり、かつ比較対象が要約されていない長文同士のため、意味的に同じ話題でも語彙が異なるとスコアが閾値（`SAME_TOPIC_THRESHOLD=0.5`/`CHILD_TOPIC_THRESHOLD=0.2`）を超えず、ほぼ毎ターン`new`（ルートの独立トピック）判定になる。
+  - なお`TopicClassifier`のコメントが差し替え先として想定していた「T15」は実際には`MemoryRepository`向け`EmbeddingService`（記憶の意味検索）のみのスコープで完了しており（`todo.md` T15参照）、`TopicClassifier`への適用は行われていなかった。
+  - 対応方針: T15で実装済みの`EmbeddingService`（`packages/server`、Together AI Embeddings API）を`TopicClassifier`から利用できるようにし、(1) 新規発話ごとにLLM等でトピックlabelを要約・抽象化する処理を追加する、(2) `same`/`child`/`new`の判定をこの要約labelの埋め込みベクトル同士のコサイン類似度に置き換える。`class-design.md` 7章・`data-design.md`のTopic関連定義を実装に合わせて更新する。
+  - **実施内容（対応済み）**: (2)は`TopicClassifier`に`embeddingService`をoptional注入し、注入時はutteranceと既存Topic.labelのコサイン類似度でsame/child/new判定を行うように実装した（未注入時は従来のJaccard係数にフォールバック）。(1)については、今回はLLM呼び出しによる要約は見送り、発話の最初の一文（句読点まで、最大20文字）を切り出す簡易ヒューリスティックをlabelとして採用した（`TopicClassifier.toShortLabel`）。LLMによる本格的な要約・抽象化への差し替えは別途フォローアップとする。
+
+  テスト: `TopicClassifier`/`TopicContinuationScorer`の話題継続判定について、同一話題が継続すべき入力パターンでの期待値をユニットテストで確認する。label要約処理についても、発話に対して短い要約ラベルが生成されることを確認するテストを書く（LLM/Embedding呼び出しはモックまたは事前計算済みベクトルを使う）。必要であればT19のE2Eスクリプトを再実行し、`topicId`の変化回数が改善したことを確認する。
 
 ---
 

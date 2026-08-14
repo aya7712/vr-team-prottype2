@@ -71,7 +71,7 @@ async function main(): Promise<void> {
 
   const eventBus = new EngineEventBus();
   const llmClient = new TogetherClient(TOGETHER_API_KEY as string, TOGETHER_MODEL);
-  const app = createApp(db, { llmClient, eventBus });
+  const app = createApp(db, { llmClient, eventBus, embeddingService });
   const httpServer = createServer(app);
   attachWebSocketGateway(httpServer, eventBus);
 

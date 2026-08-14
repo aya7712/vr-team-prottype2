@@ -2,7 +2,7 @@ import express from 'express';
 import type { Express } from 'express';
 import type Database from 'better-sqlite3';
 import { EngineEventBus } from '@prottype2/engine';
-import type { LlmClient } from '@prottype2/engine';
+import type { LlmClient, EmbeddingService } from '@prottype2/engine';
 import { SessionRepository } from './db/repositories/SessionRepository.js';
 import { TurnRepository } from './db/repositories/TurnRepository.js';
 import { FeedbackRepository } from './db/repositories/FeedbackRepository.js';
@@ -18,6 +18,7 @@ import { createCharactersRouter } from './routes/characters.js';
 export interface CreateAppOptions {
   llmClient: LlmClient;
   eventBus?: EngineEventBus;
+  embeddingService?: EmbeddingService;
 }
 
 /**
@@ -44,6 +45,7 @@ export function createApp(db: Database.Database, options: CreateAppOptions): Exp
     topicRepository,
     options.llmClient,
     eventBus,
+    options.embeddingService,
   );
 
   const app = express();

@@ -92,7 +92,7 @@ export class ConversationManager {
     const nextTurnNo = sessionState.turnNo + 1;
     this.eventBus?.emit('turn:start', { turnNo: nextTurnNo, speakerCandidateIds: [speakerId] });
 
-    const topic = this.resolveTopic(sessionState, speakerId, targetId);
+    const topic = await this.resolveTopic(sessionState, speakerId, targetId);
     const topicScore = this.continuationScorer.score(topic);
     this.eventBus?.emit('layer:topic', {
       topic,
@@ -197,10 +197,14 @@ export class ConversationManager {
     }
   }
 
-  private resolveTopic(sessionState: SessionState, speakerId: string, targetId: string): Topic {
+  private async resolveTopic(
+    sessionState: SessionState,
+    speakerId: string,
+    targetId: string,
+  ): Promise<Topic> {
     const lastUtterance =
       sessionState.recentUtterances.at(-1)?.utterance ?? sessionState.initialTopic;
-    const classification = this.topicClassifier.classify(
+    const classification = await this.topicClassifier.classify(
       lastUtterance,
       sessionState.topicTree,
       speakerId,
