@@ -95,7 +95,28 @@ export class CharacterCacheRepository {
     const now = new Date().toISOString();
     const run = this.db.transaction((records: CharacterDefRecord[]) => {
       this.db.prepare('DELETE FROM character_relationships_cache').run();
-      this.db.prepare('DELETE FROM characters_cache').run();
+      // characters_cacheはmemory_preset_cache.ownerから外部キー参照されており、
+      // memory_preset_cacheの洗い替えはsyncMemoryPresets（別トランザクション、
+      // このメソッドの後に呼ばれる）が担う。確認用データを永続化する運用（2026-08-13〜）
+      // ではmemory_preset_cacheが前回起動時のデータを保持したまま次回起動を迎えるため、
+      // DELETE FROM characters_cacheを先に行うと外部キー制約違反になる。
+      // そのためDELETE→INSERTではなくUPSERTに変更し、削除を伴わずに洗い替える。
+      // 既存データセットに含まれなくなったID（character_defから削除された等）のみ
+      // DELETEする。records.length===0の場合は「NOT IN ()」が書けないため無条件DELETEに
+      // フォールバックする（SQLiteの`NOT IN (NULL)`は常にUNKNOWN評価となり1件も削除
+      // されないため、意図せず古いキャッシュが残り続けるのを防ぐ）。
+      // 既知の制約: 削除対象のIDがまだmemory_preset_cacheから参照されている場合、
+      // このDELETEも外部キー制約違反になりうる（新規追加・更新のみを想定した
+      // 洗い替えであり、character_defからのキャラクター削除は現状未対応）。
+      if (records.length > 0) {
+        this.db
+          .prepare(
+            `DELETE FROM characters_cache WHERE id NOT IN (${records.map(() => '?').join(',')})`,
+          )
+          .run(...records.map((r) => r.id));
+      } else {
+        this.db.prepare('DELETE FROM characters_cache').run();
+      }
 
       const insertChar = this.db.prepare(`
         INSERT INTO characters_cache
@@ -103,6 +124,21 @@ export class CharacterCacheRepository {
            vocabulary_json, ng_topics_json, unit_context_json, llm_json, raw_yaml_path, loaded_at)
         VALUES (@id, @name, @furigana, @color, @age, @gender, @firstPerson, @personality, @toneSample,
                 @vocabularyJson, @ngTopicsJson, @unitContextJson, @llmJson, @rawYamlPath, @loadedAt)
+        ON CONFLICT(id) DO UPDATE SET
+          name = excluded.name,
+          furigana = excluded.furigana,
+          color = excluded.color,
+          age = excluded.age,
+          gender = excluded.gender,
+          first_person = excluded.first_person,
+          personality = excluded.personality,
+          tone_sample = excluded.tone_sample,
+          vocabulary_json = excluded.vocabulary_json,
+          ng_topics_json = excluded.ng_topics_json,
+          unit_context_json = excluded.unit_context_json,
+          llm_json = excluded.llm_json,
+          raw_yaml_path = excluded.raw_yaml_path,
+          loaded_at = excluded.loaded_at
       `);
       const insertRel = this.db.prepare(`
         INSERT INTO character_relationships_cache

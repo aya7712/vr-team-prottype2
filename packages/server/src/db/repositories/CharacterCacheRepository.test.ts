@@ -85,6 +85,52 @@ describe('CharacterCacheRepository', () => {
     expect(count.c).toBe(4);
   });
 
+  it('memory_preset_cacheが残ったままの再起動でもsyncCharactersが外部キー制約違反を起こさない', async () => {
+    // 確認用データを永続化する運用（2026-08-13〜）では、サーバー再起動時に前回起動分の
+    // memory_preset_cache（characters_cache(id)をownerで参照）が残った状態から
+    // syncCharacters→syncMemoryPresetsの順で再同期される。memory_preset_cacheの
+    // 洗い替えより先にcharacters_cacheをDELETEすると外部キー制約違反になるため、
+    // その再現・回帰防止用のテスト。
+    db = new Database(':memory:');
+    migrate(db);
+    const repo = new CharacterCacheRepository(db);
+
+    const loader = new CharacterDefLoader(CHARACTER_DEF_PATH);
+    const { characters, memoryPresets } = await loader.loadAll();
+
+    // 1回目の起動を模す。
+    repo.syncCharacters(characters);
+    repo.syncMemoryPresets(memoryPresets);
+
+    // 2回目の起動（再起動）を模す。memory_preset_cacheが残ったままsyncCharactersを呼ぶ。
+    expect(() => repo.syncCharacters(characters)).not.toThrow();
+    repo.syncMemoryPresets(memoryPresets);
+
+    const charCount = db.prepare('SELECT COUNT(*) as c FROM characters_cache').get() as {
+      c: number;
+    };
+    expect(charCount.c).toBe(4);
+  });
+
+  it('syncCharactersに空配列を渡すと既存のキャッシュを全て削除する', async () => {
+    // records.length === 0のとき「WHERE id NOT IN (NULL)」になり1件も削除されない
+    // 回帰を防ぐテスト（SQLiteの`NOT IN (NULL)`は常にUNKNOWN評価になるため）。
+    db = new Database(':memory:');
+    migrate(db);
+    const repo = new CharacterCacheRepository(db);
+
+    const loader = new CharacterDefLoader(CHARACTER_DEF_PATH);
+    const { characters } = await loader.loadAll();
+
+    repo.syncCharacters(characters);
+    repo.syncCharacters([]);
+
+    const count = db.prepare('SELECT COUNT(*) as c FROM characters_cache').get() as {
+      c: number;
+    };
+    expect(count.c).toBe(0);
+  });
+
   it('syncMemoryPresetsは2回目の呼び出しでFTSテーブルも洗い替える', async () => {
     db = new Database(':memory:');
     migrate(db);
