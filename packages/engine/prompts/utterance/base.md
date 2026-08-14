@@ -19,6 +19,10 @@
 
 - Dialogue Act: {{dialogueAct}}
 
+## 現在の話題
+
+{{topicLabel}}
+
 ## 参考にする記憶
 
 {{retrievedMemory}}

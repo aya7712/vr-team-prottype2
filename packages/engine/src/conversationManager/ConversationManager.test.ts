@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import { ConversationManager } from './ConversationManager.js';
 import { SpeakerSelector } from './SpeakerSelector.js';
 import { EndConditionEvaluator } from './EndConditionEvaluator.js';
@@ -110,7 +111,9 @@ function makeConversationManager(
   const memoryRepo = new InMemoryMemoryRepository([]);
   const memoryRetriever = new MemoryRetriever(memoryRepo);
 
-  const templateLoader = makeFakeTemplateLoader('{{characterName}}が{{dialogueAct}}する。');
+  const templateLoader = makeFakeTemplateLoader(
+    '{{characterName}}が{{topicLabel}}について{{dialogueAct}}する。',
+  );
   const promptBuilder = new PromptBuilder(templateLoader);
 
   let callIndex = 0;
@@ -197,6 +200,17 @@ describe('ConversationManager', () => {
     // ラベルはinitialTopicそのものであること（「(会話開始)」プレースホルダーに
     // 依存していないこと）を確認する。
     expect(topic?.label).toBe('夏祭りの思い出');
+  });
+
+  it('T35: 1発話目のLLMプロンプトに最初のトピックが反映される', async () => {
+    const { manager, llmClient } = makeConversationManager(['「やったー！」']);
+    const sessionState = makeSessionState();
+    sessionState.initialTopic = '夏祭りの思い出';
+
+    await manager.runTurn(sessionState);
+
+    const [prompt] = (llmClient.complete as Mock).mock.calls[0] as [string];
+    expect(prompt).toContain('夏祭りの思い出');
   });
 
   it('runTurnを繰り返すと発話者が交互に切り替わる（2体会話）', async () => {

@@ -150,6 +150,7 @@ export class ConversationManager {
       characterState,
       relationshipContext,
       retrievedMemories,
+      topic,
     );
     const speakerLlmConfig = this.characterDefs.get(speakerId)?.llm ?? null;
     const rawOutput = await this.llmClient.complete(prompt, {
@@ -278,6 +279,7 @@ export class ConversationManager {
     characterState: CharacterState,
     relationshipContext: RelationshipContext,
     retrievedMemories: MemoryItem[],
+    topic: Topic,
   ): string {
     const speakerDef = this.characterDefs.get(speakerId);
     const targetDef = this.characterDefs.get(targetId);
@@ -300,6 +302,7 @@ export class ConversationManager {
       targetName: targetDef?.name ?? targetId,
       addressTerm: relationshipContext.addressTerm,
       dialogueAct: act,
+      topicLabel: topic.label,
       retrievedMemory: retrievedMemories.map((m) => m.summary).join('\n') || '(なし)',
       recentDialogue: recentDialogue || '(会話開始)',
     });
