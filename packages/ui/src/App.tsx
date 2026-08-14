@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { CharacterSummary } from './api/client';
 import { apiClient } from './api/client';
+import { SessionStartForm } from './components/SessionStartForm';
 import { ConversationView } from './views/ConversationView';
 import { LayerInspector } from './views/LayerInspector';
 import { LogBrowser } from './views/LogBrowser';
@@ -40,6 +41,7 @@ export function App() {
         // ui-design-rules.md 3章: 左＝会話タイムライン、右＝パラメータ/計算過程パネル
         <div style={{ display: 'flex', gap: 'var(--space-3)', alignItems: 'flex-start' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
+            <SessionStartForm characters={characters} />
             <ConversationView wsUrl={wsUrl} characters={characters} />
           </div>
           <div

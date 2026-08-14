@@ -183,7 +183,7 @@
   ユーザー要望により追加。現状`GET /api/sessions`の一覧取得エンドポイントが無く、`LogBrowser`はセッションIDを手入力する方式になっている。`architecture.md` 7章に`GET /api/sessions`（セッション一覧。id/createdAt/status/participantIds等を返す）を追加し、`data-design.md`のsessionsテーブル定義と整合させる。`packages/ui`の`LogBrowser`（`class-design.md` 14章）は、セッションID手入力欄をセッション一覧（クリックで選択、表示中のセッションをハイライト）に置き換える。`features.md` F9.4の記述もこの変更に合わせて更新する。
   テスト: 一覧APIのHTTPテスト（`packages/server`）。UIのセッション一覧表示・クリック選択のコンポーネントテスト（`packages/ui`）。
 
-- [ ] **T34. リアルタイム画面からのターン数指定でのセッション開始**
+- [x] **T34. リアルタイム画面からのターン数指定でのセッション開始**
   ユーザー要望により追加。現状UIにはセッション作成・開始のUIが無く、`POST /api/sessions`・`POST /api/sessions/:id/run`は外部（curl等）から呼ぶことでしか動作確認できていない（T27/T32参照）。`packages/ui`のリアルタイム画面（`ConversationView`周辺）に、参加キャラクター選択・ターン数入力・開始ボタンを持つセッション作成フォームを追加し、`apiClient.createSession`→`apiClient.runSession`を呼び出せるようにする。`features.md` F6.6・`class-design.md` 14章の記載に反映する。
   テスト: フォーム入力→送信のコンポーネントテスト（APIモック）。`npm run dev`で実際にUIからセッションを作成・開始できることをブラウザで確認する。
 
