@@ -175,6 +175,49 @@ describe('migrate', () => {
     expect(() => migrate(db)).not.toThrow();
   });
 
+  it('T39: sessionsテーブルからscenario_jsonカラムが削除される（新規DBでも）', () => {
+    db = new Database(':memory:');
+    migrate(db);
+
+    const columns = getColumns(db, 'sessions').map((c) => c.name);
+    expect(columns).not.toContain('scenario_json');
+  });
+
+  it('T39: scenario_json削除前の旧スキーマDBに適用してもデータが失われず、カラムが削除される', () => {
+    db = new Database(':memory:');
+    // scenario_jsonがまだ残っていた（T39以前の）「旧スキーマ」状態を再現する（migrate()を通さない）。
+    db.exec(`
+      CREATE TABLE sessions (
+        id                TEXT PRIMARY KEY,
+        scenario_json     TEXT NOT NULL,
+        participant_ids_json TEXT NOT NULL,
+        created_at        TEXT NOT NULL,
+        status            TEXT NOT NULL,
+        initial_topic     TEXT NOT NULL DEFAULT '(不明)'
+      );
+    `);
+    db.pragma('user_version = 1');
+    db.prepare(
+      'INSERT INTO sessions (id, scenario_json, participant_ids_json, created_at, status, initial_topic) VALUES (?, ?, ?, ?, ?, ?)',
+    ).run('session_1', '{}', '["char_a"]', '2026-01-01T00:00:00.000Z', 'stopped', 'テスト話題');
+
+    migrate(db);
+
+    const columns = getColumns(db, 'sessions').map((c) => c.name);
+    expect(columns).not.toContain('scenario_json');
+    const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get('session_1') as {
+      id: string;
+      status: string;
+      initial_topic: string;
+    };
+    expect(row.id).toBe('session_1');
+    expect(row.status).toBe('stopped');
+    expect(row.initial_topic).toBe('テスト話題');
+
+    // 2回目の適用でも既に削除済みのカラムに対してALTER TABLEを再実行せず例外を投げない。
+    expect(() => migrate(db)).not.toThrow();
+  });
+
   it('openMigratedDatabaseはファイルを開いてマイグレーションを適用する', async () => {
     const { mkdtempSync, rmSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');

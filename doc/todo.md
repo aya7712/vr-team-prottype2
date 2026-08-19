@@ -214,9 +214,10 @@
   テスト: 関連度判定を実装する場合、共有記憶の有無/内容によって`RelationshipContext`や`TopicClassificationResult`の判定が変わることを確認するユニットテストを書く。
   **実施内容（対応済み、見送り）**: `features.md` F4.2に要件自体は明記されており省略ではなく未実装のギャップだった。ただし`ConversationManager`は「Topic判定 → 関係性解決 → 記憶検索」の順でターンを処理しており、Topic判定は前ターンの発話を使う一手遅れ設計のため、今回の発話に対する記憶検索結果はTopic判定時点でまだ存在しない。関連度を反映するにはパイプライン順序の組み替え（記憶検索の前倒し、または前ターンの検索結果を次のTopic判定へ引き継ぐ）が必要であり、プロトタイプ規模ではそのコストに見合わないとユーザーと合意し実装は見送った。`features.md`（F4.2）・`class-design.md`（`RelationshipManager`/`TopicClassifier`のdocコメント）・実装側（`RelationshipManager.ts`/`TopicClassifier.ts`のdocコメント）を、いずれも「後続TODOで追加」ではなく「T38で見送り済み」と明記する形に更新し、設計と実装の記述を一致させた。
 
-- [ ] **T39. `SessionRecord.scenario`フィールドの整理**
+- [x] **T39. `SessionRecord.scenario`フィールドの整理**
   T36対応中のTODOコメント調査で発見。`packages/server/src/db/repositories/types.ts`の`SessionRecord.scenario`（`unknown`型）が「F6.6（シナリオ入力）が未実装のため」というコメント付きで残っているが、T35対応で`features.md` F6.6は「初期トピック（文字列、必須）」に事実上スコープダウンされており（`initialTopic`フィールドが新設・実装済み）、`scenario`は`SessionService.ts`で常に`null`が入るだけの未使用フィールドになっている。`scenario`関連のコード（`SessionRecord`/`CreateSessionInput`の`scenario`、`sessions`テーブルの`scenario_json`カラム、`SessionRepository`/`SessionService`の該当箇所）を削除するか、将来のシナリオ入力機能拡張のために意図的に残すかを判断し、残す場合は`data-design.md`/`class-design.md`にその意図を明記する。削除する場合はT35と同様の`ALTER TABLE`方式マイグレーション機構（`schema_version`管理）でカラム削除に対応する。
   テスト: `scenario`を削除する場合、`POST /api/sessions`が`scenario`無しのリクエストで正しく動作することを確認する既存テストの更新。マイグレーションのテスト（旧スキーマDBに適用してもデータが失われないこと）。
+  **実施内容（対応済み）**: UI（`SessionStartForm.tsx`）から一度も送信されず常に`null`となる未使用フィールドと確認できたため削除する方針とした。`migrate.ts`にversion 2のマイグレーション（`ALTER TABLE sessions DROP COLUMN scenario_json`）を追加し、`SessionRecord`/`CreateSessionInput`/`CreateSessionRequest`（server・UI双方）から`scenario`を削除、`SessionRepository`/`SessionService`の関連コードを削除した。`schema.sql`の`CREATE TABLE`自体はT35の`initial_topic`追加と同じ方針（過去互換のため基本形は変えずマイグレーションで差分を適用）に倣い`scenario_json`列を残し、必ずマイグレーションでDROPされる形にした。`migrate.test.ts`に新規DB・旧スキーマDB（データ保持確認込み）双方のテストを追加。`data-design.md`/`class-design.md`のセッションテーブル定義・`SessionService`インタフェースも実装に合わせて更新した。
 
 ---
 

@@ -2,11 +2,9 @@ import type { DialogueAct, TargetCharacterIds } from '@prottype2/engine';
 
 export type SessionStatus = 'running' | 'stopped' | 'completed';
 
-// `sessions`テーブルに対応するレコード。scenarioはF6.6（シナリオ入力）が未実装のため
-// 現時点では任意のJSON値として扱う（architecture.md 7章 POST /api/sessions）。
+// `sessions`テーブルに対応するレコード（architecture.md 7章 POST /api/sessions）。
 export interface SessionRecord {
   id: string;
-  scenario: unknown;
   participantIds: string[];
   createdAt: string;
   status: SessionStatus;
@@ -17,7 +15,6 @@ export interface SessionRecord {
 
 export interface CreateSessionInput {
   id: string;
-  scenario: unknown;
   participantIds: string[];
   status: SessionStatus;
   initialTopic: string;

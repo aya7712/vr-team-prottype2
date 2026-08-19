@@ -145,12 +145,14 @@ CREATE TABLE memory_preset_cache (
 ```sql
 CREATE TABLE sessions (
   id                TEXT PRIMARY KEY,
-  scenario_json     TEXT NOT NULL,      -- テーマ・制約・尺 (F6.6)
   participant_ids_json TEXT NOT NULL,   -- 参加キャラクターID (2〜4体)
   created_at        TEXT NOT NULL,
   status            TEXT NOT NULL,      -- running / stopped / completed
   initial_topic     TEXT NOT NULL       -- 最初のトピック（必須、F6.6、T35でALTER TABLEにより追加）
 );
+-- scenario_json（テーマ・制約・尺、F6.6の当初案）はT35でF6.6が「最初のトピック」に
+-- スコープダウンされて以降、UI/APIから設定されることのない未使用列だったためT39でDROPした
+-- （ALTER TABLE DROP COLUMNによるマイグレーション、`migrate.ts` version 2）。
 
 CREATE TABLE relationship_state (
   session_id          TEXT NOT NULL REFERENCES sessions(id),

@@ -43,7 +43,6 @@ describe('REST API（architecture.md 7章）', () => {
         .post('/api/sessions')
         .send({
           participantIds: ['char_a', 'char_b'],
-          scenario: { theme: '雑談' },
           initialTopic: '夏祭りの思い出',
         });
 

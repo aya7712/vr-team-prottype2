@@ -3,7 +3,6 @@ import type { CreateSessionInput, SessionRecord, SessionStatus } from './types.j
 
 interface SessionRow {
   id: string;
-  scenario_json: string;
   participant_ids_json: string;
   created_at: string;
   status: SessionStatus;
@@ -13,7 +12,6 @@ interface SessionRow {
 function rowToSession(row: SessionRow): SessionRecord {
   return {
     id: row.id,
-    scenario: JSON.parse(row.scenario_json),
     participantIds: JSON.parse(row.participant_ids_json) as string[],
     createdAt: row.created_at,
     status: row.status,
@@ -30,13 +28,12 @@ export class SessionRepository {
     this.db
       .prepare(
         `
-        INSERT INTO sessions (id, scenario_json, participant_ids_json, created_at, status, initial_topic)
-        VALUES (@id, @scenarioJson, @participantIdsJson, @createdAt, @status, @initialTopic)
+        INSERT INTO sessions (id, participant_ids_json, created_at, status, initial_topic)
+        VALUES (@id, @participantIdsJson, @createdAt, @status, @initialTopic)
       `,
       )
       .run({
         id: input.id,
-        scenarioJson: JSON.stringify(input.scenario),
         participantIdsJson: JSON.stringify(input.participantIds),
         createdAt,
         status: input.status,
@@ -45,7 +42,6 @@ export class SessionRepository {
 
     return {
       id: input.id,
-      scenario: input.scenario,
       participantIds: input.participantIds,
       createdAt,
       status: input.status,

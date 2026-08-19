@@ -4,7 +4,6 @@ export type SessionStatus = 'running' | 'stopped' | 'completed';
 
 export interface Session {
   id: string;
-  scenario: unknown;
   participantIds: string[];
   createdAt: string;
   status: SessionStatus;
@@ -44,7 +43,6 @@ export interface Feedback {
 
 export interface CreateSessionRequest {
   participantIds: string[];
-  scenario?: unknown;
   initialTopic: string;
 }
 

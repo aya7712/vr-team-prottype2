@@ -11,7 +11,6 @@ const characters = [
 const sessions = [
   {
     id: 's1',
-    scenario: null,
     participantIds: ['char_a', 'char_b'],
     createdAt: '2026-08-13T00:00:00.000Z',
     status: 'stopped' as const,

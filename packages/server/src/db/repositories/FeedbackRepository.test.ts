@@ -17,7 +17,6 @@ describe('FeedbackRepository', () => {
     migrate(db);
     new SessionRepository(db).create({
       id: 'session_1',
-      scenario: {},
       participantIds: ['char_a', 'char_b'],
       status: 'running',
       initialTopic: 'テスト話題',

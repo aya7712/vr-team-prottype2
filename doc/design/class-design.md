@@ -621,7 +621,7 @@ export class SessionService {
   ) {}
 
   // participantIdsが2〜4体・重複なし・characters_cacheに実在することを検証してから作成する
-  createSession(request: { participantIds: string[]; scenario?: unknown }): SessionRecord;
+  createSession(request: { participantIds: string[]; initialTopic?: string }): SessionRecord;
   getSession(id: string): SessionRecord | null;
   run(id: string): SessionRecord | null;   // T17時点はstatus更新のみ（実際の生成はT18のTurnOrchestrator）
   stop(id: string): SessionRecord | null;

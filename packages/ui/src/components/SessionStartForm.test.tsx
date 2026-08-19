@@ -52,7 +52,6 @@ describe('SessionStartForm', () => {
         status: 201,
         body: {
           id: 's1',
-          scenario: null,
           participantIds: ['char_a', 'char_b'],
           createdAt: 'x',
           status: 'stopped',
@@ -63,7 +62,6 @@ describe('SessionStartForm', () => {
         status: 202,
         body: {
           id: 's1',
-          scenario: null,
           participantIds: ['char_a', 'char_b'],
           createdAt: 'x',
           status: 'running',
@@ -110,7 +108,6 @@ describe('SessionStartForm', () => {
       statusText: 'ok',
       json: async () => ({
         id: 's1',
-        scenario: null,
         participantIds: ['char_a', 'char_b'],
         createdAt: 'x',
         status: 'stopped',

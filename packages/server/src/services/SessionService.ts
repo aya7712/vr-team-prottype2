@@ -7,7 +7,6 @@ const MAX_PARTICIPANTS = 4;
 
 export interface CreateSessionRequest {
   participantIds: string[];
-  scenario?: unknown;
   initialTopic?: string;
 }
 
@@ -26,7 +25,7 @@ export class SessionService {
   ) {}
 
   createSession(request: CreateSessionRequest): SessionRecord {
-    const { participantIds, scenario, initialTopic } = request;
+    const { participantIds, initialTopic } = request;
 
     if (
       !Array.isArray(participantIds) ||
@@ -52,7 +51,6 @@ export class SessionService {
 
     return this.sessionRepository.create({
       id: crypto.randomUUID(),
-      scenario: scenario ?? null,
       participantIds,
       status: 'stopped',
       initialTopic,

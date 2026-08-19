@@ -17,7 +17,6 @@ describe('SessionRepository', () => {
 
     const created = repo.create({
       id: 'session_1',
-      scenario: { theme: '雑談' },
       participantIds: ['char_a', 'char_b'],
       status: 'running',
       initialTopic: '夏祭りの思い出',
@@ -42,7 +41,6 @@ describe('SessionRepository', () => {
     const repo = new SessionRepository(db);
     repo.create({
       id: 'session_1',
-      scenario: {},
       participantIds: ['char_a', 'char_b'],
       status: 'running',
       initialTopic: '雑談',
@@ -58,14 +56,12 @@ describe('SessionRepository', () => {
     const repo = new SessionRepository(db);
     repo.create({
       id: 'session_1',
-      scenario: {},
       participantIds: ['char_a'],
       status: 'running',
       initialTopic: '話題1',
     });
     repo.create({
       id: 'session_2',
-      scenario: {},
       participantIds: ['char_b'],
       status: 'running',
       initialTopic: '話題2',

@@ -47,7 +47,6 @@ describe('TurnOrchestrator', () => {
 
     const session = sessionRepository.create({
       id: 'session_1',
-      scenario: {},
       participantIds: ['char_a', 'char_b'],
       status: 'stopped',
       initialTopic: 'テスト話題',
@@ -160,7 +159,6 @@ describe('TurnOrchestrator', () => {
     const sessionRepository2 = new SessionRepository(db2);
     const session2 = sessionRepository2.create({
       id: 'session_2',
-      scenario: {},
       participantIds: ['char_a', 'char_b'],
       status: 'stopped',
       initialTopic: 'テスト話題',

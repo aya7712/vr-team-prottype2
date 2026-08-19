@@ -22,6 +22,14 @@ const MIGRATIONS: { version: number; apply: (db: Database.Database) => void }[] 
       db.exec("ALTER TABLE sessions ADD COLUMN initial_topic TEXT NOT NULL DEFAULT '(不明)'");
     },
   },
+  {
+    version: 2,
+    apply: (db) => {
+      // `scenario`（F6.6シナリオ入力）はT35でinitialTopicにスコープダウンされて以降、
+      // UI/API経由で設定されることのない未使用フィールドだったため削除する（doc/todo.md T39）。
+      db.exec('ALTER TABLE sessions DROP COLUMN scenario_json');
+    },
+  },
 ];
 
 function getSchemaVersion(db: Database.Database): number {

@@ -55,6 +55,9 @@ CREATE TABLE IF NOT EXISTS memory_preset_cache (
 
 -- 5.2 エンジン所有データ（セッション実行に伴い書き込まれる）
 
+-- initial_topic（T35）はmigrate.tsのマイグレーションで追加される（過去互換のためCREATE TABLE自体には含めない）。
+-- scenario_jsonはmigrate.tsのマイグレーション（T39、version 2）でDROPされる未使用列だったため、
+-- 過去互換のためCREATE TABLE自体には引き続き含める（新規DBでも一度作成してからDROPする）。
 CREATE TABLE IF NOT EXISTS sessions (
   id                TEXT PRIMARY KEY,
   scenario_json     TEXT NOT NULL,
