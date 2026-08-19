@@ -1,6 +1,9 @@
 import type { DialogueAct, TargetCharacterIds } from '@prottype2/engine';
 
-export type SessionStatus = 'running' | 'stopped' | 'completed';
+// 'failed'（T40）: `TurnOrchestrator.start()`実行中にLLM/Embedding呼び出しの例外等で
+// 予期せず中断した場合のステータス。requestStop()による意図的な打ち切り（'stopped'）や
+// maxTurns分の正常完了（'completed'）とは区別する。
+export type SessionStatus = 'running' | 'stopped' | 'completed' | 'failed';
 
 // `sessions`テーブルに対応するレコード（architecture.md 7章 POST /api/sessions）。
 export interface SessionRecord {

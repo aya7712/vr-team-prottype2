@@ -36,6 +36,7 @@ import type {
   LayerEventName,
   Topic,
   EmbeddingService,
+  SessionEndReason,
 } from '@prottype2/engine';
 import type { SessionRepository } from '../db/repositories/SessionRepository.js';
 import type { TurnRepository } from '../db/repositories/TurnRepository.js';
@@ -109,6 +110,11 @@ export class TurnOrchestrator {
     const manager = this.buildConversationManager(session.participantIds);
     const unsubscribe = this.subscribePersistence(sessionId);
 
+    // T40: runSession中の例外（LLM/Embedding呼び出しのタイムアウト等）を、requestStop()による
+    // 意図的な打ち切りや正常完了と区別してステータスに反映する。区別しないと、例外発生時にも
+    // finallyが無条件に'completed'（正常完了）を記録してしまい、失敗が握りつぶされていた。
+    let reason: SessionEndReason = 'completed';
+    let errorMessage: string | undefined;
     try {
       const sessionState = {
         sessionId,
@@ -127,10 +133,18 @@ export class TurnOrchestrator {
         // （for-await-ofをbreakするとasync generatorのreturn()が呼ばれ安全に打ち切れる）。
         if (this.stopRequested) break;
       }
+      reason = this.stopRequested ? 'stopped' : 'completed';
+    } catch (err) {
+      reason = 'failed';
+      errorMessage = err instanceof Error ? err.message : String(err);
+      throw err;
     } finally {
       unsubscribe();
       this.running = false;
-      this.sessionRepository.updateStatus(sessionId, this.stopRequested ? 'stopped' : 'completed');
+      this.sessionRepository.updateStatus(sessionId, reason);
+      // T41: セッション全体の終了（正常完了/打ち切り/エラー）をUIに伝えるため、
+      // ターン単位のレイヤーイベントとは別にsession:endをemitする（gateway.tsが配信する）。
+      this.eventBus.emit('session:end', { reason, error: errorMessage });
     }
   }
 

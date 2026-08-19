@@ -1,6 +1,6 @@
 import type { DialogueAct, TargetCharacterIds } from '@prottype2/engine';
 
-export type SessionStatus = 'running' | 'stopped' | 'completed';
+export type SessionStatus = 'running' | 'stopped' | 'completed' | 'failed';
 
 export interface Session {
   id: string;

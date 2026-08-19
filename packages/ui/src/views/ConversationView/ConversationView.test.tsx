@@ -9,11 +9,15 @@ const characters = [
   { id: 'char_b', name: 'つむぎ', furigana: null, color: '#67be8d' },
 ];
 
-function mockEvents(events: LayerEvent[], status: useEngineEventsModule.ConnectionStatus = 'open') {
+function mockEvents(
+  events: LayerEvent[],
+  status: useEngineEventsModule.ConnectionStatus = 'open',
+  latestByName: useEngineEventsModule.LatestLayerEventByName = {},
+) {
   vi.spyOn(useEngineEventsModule, 'useEngineEvents').mockReturnValue({
     status,
     events,
-    latestByName: {},
+    latestByName,
   });
 }
 
@@ -69,5 +73,30 @@ describe('ConversationView', () => {
     render(<ConversationView wsUrl="ws://localhost/ws" characters={characters} />);
 
     expect(screen.getByText('char_unknown')).toBeInTheDocument();
+  });
+
+  it('session:end（reason=completed）を受信すると完了メッセージを表示する（T41）', () => {
+    mockEvents([], 'open', {
+      'session:end': { name: 'session:end', payload: { reason: 'completed' } },
+    });
+
+    render(<ConversationView wsUrl="ws://localhost/ws" characters={characters} />);
+
+    expect(screen.getByText('会話の生成が完了しました。')).toBeInTheDocument();
+  });
+
+  it('session:end（reason=failed）を受信するとエラーメッセージ付きで表示する（T40/T41）', () => {
+    mockEvents([], 'open', {
+      'session:end': {
+        name: 'session:end',
+        payload: { reason: 'failed', error: 'LLM呼び出しタイムアウト' },
+      },
+    });
+
+    render(<ConversationView wsUrl="ws://localhost/ws" characters={characters} />);
+
+    expect(
+      screen.getByText('エラーにより会話の生成が中断されました（LLM呼び出しタイムアウト）。'),
+    ).toBeInTheDocument();
   });
 });

@@ -15,7 +15,8 @@ export type LayerEventName =
   | 'layer:dialoguePlanner'
   | 'layer:memory'
   | 'layer:llm'
-  | 'turn:complete';
+  | 'turn:complete'
+  | 'session:end';
 
 export interface TurnStartPayload {
   turnNo: number;
@@ -54,6 +55,16 @@ export interface LlmLayerPayload {
 
 export type TurnCompletePayload = TurnResult;
 
+// T41: セッション全体（`runSession`のfor-await-ofループ）の終了理由。`stopped`はrequestStop()
+// による意図的な打ち切り、`failed`はLLM/Embedding呼び出しの例外等による予期しない中断（T40）。
+export type SessionEndReason = 'completed' | 'stopped' | 'failed';
+
+export interface SessionEndPayload {
+  reason: SessionEndReason;
+  // reason: 'failed'の場合のみ、原因を特定するためのエラーメッセージを含める。
+  error?: string;
+}
+
 export type LayerEvent =
   | { name: 'turn:start'; payload: TurnStartPayload }
   | { name: 'layer:topic'; payload: TopicLayerPayload }
@@ -62,4 +73,5 @@ export type LayerEvent =
   | { name: 'layer:dialoguePlanner'; payload: DialoguePlannerLayerPayload }
   | { name: 'layer:memory'; payload: MemoryLayerPayload }
   | { name: 'layer:llm'; payload: LlmLayerPayload }
-  | { name: 'turn:complete'; payload: TurnCompletePayload };
+  | { name: 'turn:complete'; payload: TurnCompletePayload }
+  | { name: 'session:end'; payload: SessionEndPayload };

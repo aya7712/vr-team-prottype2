@@ -12,6 +12,7 @@ const LAYER_EVENT_NAMES: LayerEventName[] = [
   'layer:memory',
   'layer:llm',
   'turn:complete',
+  'session:end', // T41: セッション全体の終了（正常完了/打ち切り/エラー）をUIに伝える。
 ];
 
 /**

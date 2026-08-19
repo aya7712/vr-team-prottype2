@@ -110,6 +110,44 @@ describe('TurnOrchestrator', () => {
     expect(sessionRepository.findById(session.id)?.status).toBe('stopped');
   });
 
+  it('LLM呼び出しが例外を投げるとstatusがfailedになる（T40、旧実装ではcompletedのまま握りつぶされていた）', async () => {
+    const failingLlmClient: LlmClient = {
+      complete: vi.fn().mockRejectedValue(new Error('LLM呼び出しタイムアウト')),
+    };
+    const { session, orchestrator, sessionRepository } = setup(failingLlmClient);
+
+    await expect(orchestrator.start(session.id, 5)).rejects.toThrow('LLM呼び出しタイムアウト');
+    expect(sessionRepository.findById(session.id)?.status).toBe('failed');
+  });
+
+  it('session:endイベントがreason=completedで1回だけ発行される（T41）', async () => {
+    const { session, orchestrator, eventBus } = setup();
+    const onSessionEnd = vi.fn();
+    eventBus.on('session:end', onSessionEnd);
+
+    await orchestrator.start(session.id, 1);
+
+    expect(onSessionEnd).toHaveBeenCalledTimes(1);
+    expect(onSessionEnd).toHaveBeenCalledWith({ reason: 'completed', error: undefined });
+  });
+
+  it('session:endイベントがLLM例外時にreason=failedとエラーメッセージ付きで発行される（T40/T41）', async () => {
+    const failingLlmClient: LlmClient = {
+      complete: vi.fn().mockRejectedValue(new Error('LLM呼び出しタイムアウト')),
+    };
+    const { session, orchestrator, eventBus } = setup(failingLlmClient);
+    const onSessionEnd = vi.fn();
+    eventBus.on('session:end', onSessionEnd);
+
+    await expect(orchestrator.start(session.id, 5)).rejects.toThrow();
+
+    expect(onSessionEnd).toHaveBeenCalledTimes(1);
+    expect(onSessionEnd).toHaveBeenCalledWith({
+      reason: 'failed',
+      error: 'LLM呼び出しタイムアウト',
+    });
+  });
+
   it('embeddingServiceを注入するとMemoryRetrieverの意味検索まで配線される（T37）', async () => {
     const embed = vi.fn().mockResolvedValue(new Float32Array([1, 0]));
     const embeddingService = { embed } as unknown as EmbeddingService;

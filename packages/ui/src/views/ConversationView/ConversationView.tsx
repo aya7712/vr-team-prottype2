@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import type { TurnResult } from '@prottype2/engine';
+import type { SessionEndPayload, TurnResult } from '@prottype2/engine';
 import type { CharacterSummary } from '../../api/client';
 import { ChatBubble } from '../../components/ChatBubble';
 import { useEngineEvents } from '../../state/useEngineEvents';
@@ -19,9 +19,27 @@ const UNKNOWN_CHARACTER = (id: string): CharacterSummary => ({
   color: UNKNOWN_CHARACTER_COLOR,
 });
 
+// T41: session:endのreasonをユーザー向け文言に変換する。
+function describeSessionEnd(payload: SessionEndPayload): string {
+  switch (payload.reason) {
+    case 'completed':
+      return '会話の生成が完了しました。';
+    case 'stopped':
+      return '会話の生成を停止しました。';
+    case 'failed':
+      return `エラーにより会話の生成が中断されました${payload.error ? `（${payload.error}）` : ''}。`;
+    default: {
+      // SessionEndReasonが将来拡張された場合にコンパイルエラーで気づけるようにする。
+      const exhaustiveCheck: never = payload.reason;
+      throw new Error(`未知のsession:end reason: ${String(exhaustiveCheck)}`);
+    }
+  }
+}
+
 /** F9.1 リアルタイム会話ビュー（`class-design.md` 14章）。`turn:complete`イベントを時系列表示する。 */
 export function ConversationView({ wsUrl, characters }: ConversationViewProps) {
-  const { status, events } = useEngineEvents(wsUrl);
+  const { status, events, latestByName } = useEngineEvents(wsUrl);
+  const sessionEnd = latestByName['session:end'];
 
   const charactersById = useMemo(() => {
     const map = new Map<string, CharacterSummary>();
@@ -39,6 +57,11 @@ export function ConversationView({ wsUrl, characters }: ConversationViewProps) {
   return (
     <div>
       <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>接続状態: {status}</p>
+      {sessionEnd && (
+        <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
+          {describeSessionEnd(sessionEnd.payload)}
+        </p>
+      )}
       {turns.length === 0 && (
         <p style={{ color: 'var(--color-text-muted)' }}>まだ発話がありません。</p>
       )}

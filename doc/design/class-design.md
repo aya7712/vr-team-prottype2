@@ -510,7 +510,7 @@ logging/
 export type LayerEventName =
   | 'turn:start' | 'layer:topic' | 'layer:relationship'
   | 'layer:character' | 'layer:dialoguePlanner' | 'layer:memory'
-  | 'layer:llm' | 'turn:complete';
+  | 'layer:llm' | 'turn:complete' | 'session:end'; // session:endはT41で追加
 
 export class EngineEventBus {
   on(event: LayerEventName, handler: (payload: unknown) => void): void;
@@ -658,6 +658,8 @@ export class TurnOrchestrator {
 }
 ```
 
+**エラー時のステータスとイベント通知（T40/T41、2026-08-19）**: `start()`のループ実行中に例外（LLM/Embedding呼び出しの`AbortError`等）が発生した場合、`finally`ブロックで無条件に`'completed'`を記録していたためセッションの異常終了が正常完了として記録されてしまう問題があった。`try/catch`で例外発生を検知し、`stopRequested`による打ち切りかどうかと合わせて`'completed'`/`'stopped'`/`'failed'`（`SessionStatus`に追加）を区別して記録するよう修正した。また、`finally`で`eventBus.emit('session:end', { reason, error? })`を発行し、`ws/gateway.ts`経由でUIにもセッション全体の終了（理由・エラー内容）を通知する。ターン単位のイベント（`turn:start`〜`turn:complete`）とは異なり`session:end`は`start()`の実行につき1回だけ発行される。`turn:complete`と違い`turns`/`turn_layer_events`テーブルへは永続化しない一過性のイベントのため、`session:end`発行後にWebSocket再接続したクライアントは過去の終了通知を受け取れない（`GET /api/sessions/:id`で`status`を確認すれば終了理由の大分類は分かる）。プロトタイプでは単一クライアント接続を想定しており実害は小さいと判断し、この制約は許容している。
+
 **キャラクター初期状態**: `CharacterBrain`の初期`CharacterState`は、`personality`のみ`CharacterDefRecord`（DBの`characters_cache`）から引き継ぎ、`emotion`/`energy`/`curiosity`/`currentGoal`/`speakingStyle`はF1.1のデフォルト値（calm/0.5/0.5/'仲良くなる'/中立）から開始する（features.md/class-design.mdに初期値の指定が無いため実装者判断）。
 
 **プロンプトテンプレートのパス解決**: `packages/engine/prompts/`はビルド成果物（`dist/`）に含まれないソース資産のため、`require.resolve('@prottype2/engine')`でmain解決先（`dist/index.js`）を取得し、そこからパッケージルートを逆算して`prompts/`を参照する（モノレポのworkspace解決に依存する、CHARACTER_DEF_PATHとは異なる方式）。
@@ -675,7 +677,7 @@ export class EngineEventBus {
 }
 ```
 
-`ws/gateway.ts`の`attachWebSocketGateway(httpServer, eventBus)`は`TurnOrchestrator`とは独立に同じ`EngineEventBus`を購読し、`architecture.md` 7章のイベント一覧（`turn:start`〜`turn:complete`）を`{ event, payload }`形式のJSONとして全接続クライアントへブロードキャストする。`WebSocketServer`は`path: '/ws'`でhttp.Serverへアタッチする。
+`ws/gateway.ts`の`attachWebSocketGateway(httpServer, eventBus)`は`TurnOrchestrator`とは独立に同じ`EngineEventBus`を購読し、`architecture.md` 7章のイベント一覧（`turn:start`〜`turn:complete`、`session:end`）を`{ event, payload }`形式のJSONとして全接続クライアントへブロードキャストする。`WebSocketServer`は`path: '/ws'`でhttp.Serverへアタッチする。
 
 ## 14. `packages/ui/` の構成
 

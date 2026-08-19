@@ -65,7 +65,7 @@ describe('WebSocket Gateway × TurnOrchestrator（T18統合）', () => {
         };
         receivedEventNames.push(event);
         (messagesByEvent[event] ??= []).push(payload);
-        if (event === 'turn:complete') resolve();
+        if (event === 'session:end') resolve();
       });
     });
 
@@ -86,7 +86,8 @@ describe('WebSocket Gateway × TurnOrchestrator（T18統合）', () => {
     await allReceived;
     ws.close();
 
-    // architecture.md 7章のイベント一覧が想定順序で届く。
+    // architecture.md 7章のイベント一覧が想定順序で届く。session:end（T41）は
+    // ターン単位のイベントの後、start()実行全体の終了時に1回だけ届く。
     expect(receivedEventNames).toEqual([
       'turn:start',
       'layer:topic',
@@ -96,6 +97,7 @@ describe('WebSocket Gateway × TurnOrchestrator（T18統合）', () => {
       'layer:memory',
       'layer:llm',
       'turn:complete',
+      'session:end',
     ]);
 
     expect(messagesByEvent['turn:start'][0]).toMatchObject({ turnNo: 1 });
@@ -104,5 +106,6 @@ describe('WebSocket Gateway × TurnOrchestrator（T18統合）', () => {
       turnNo: 1,
       utterance: 'テストの一言',
     });
+    expect(messagesByEvent['session:end'][0]).toEqual({ reason: 'completed', error: undefined });
   }, 10_000);
 });
