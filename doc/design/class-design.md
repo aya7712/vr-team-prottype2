@@ -235,9 +235,10 @@ export interface AddressBookEntry {
 }
 
 export class RelationshipManager {
-  // T06時点ではMemoryRetriever（F3）が未実装（T07）のため依存に含めない。
   // resolve()が返すRelationshipContextはメモリを含まず、共有記憶検索はConversationManager
-  // （T12）がMemoryRetrieverを別途呼び出す想定。
+  // （T12）がMemoryRetrieverを別途呼び出す想定のため、MemoryRetriever（F3）を依存に含めない。
+  // features.md F4.2が挙げる「関連度をRelationshipManager側の判定に反映する」構想はT38（2026-08-19）
+  // で見送りとした（プロトタイプ規模ではパイプライン順序の組み替えコストに見合わないため）。
   constructor(private graph: RelationshipGraph, private addressBook: AddressBookEntry[]) {}
 
   // 話者→相手の関係コンテキストを解決する (F2.2)
@@ -322,11 +323,14 @@ export class TopicClassifier {
   // 注入可能にし、注入時はutteranceと既存Topic.labelの埋め込みベクトルのコサイン類似度で
   // same/child/new判定を行う。未注入時は文字bigramのJaccard係数（doc/todo.md T08時点の
   // 暫定実装）にフォールバックする（テスト等、意味的類似度が不要な場面向け）。
-  // RelationshipManager（T06実装済み）も、関連度判定ロジック自体が未着手で
-  // 使い道が無いため依存から外している。関連度判定を実装する後続TODOで追加する。
+  // RelationshipManager（T06実装済み）は依存に含めていない。features.md F4.2が挙げる
+  // 「関係性記憶・共有記憶との関連度も判定材料に含める」構想はT38（2026-08-19）で見送りとした
+  // （ConversationManagerのTopic判定は前ターンの発話を使う一手遅れ設計のため、今回の発話に
+  // 対する記憶検索結果はTopic判定時点でまだ存在せず、反映にはパイプライン順序の組み替えが必要。
+  // プロトタイプ規模ではそのコストに見合わないと判断）。
   constructor(embeddingService?: EmbeddingService) {}
 
-  // 意味的類似度＋関係性記憶を加味した3段階判定 (F4.2)。
+  // 意味的類似度による3段階判定 (F4.2)。関係性記憶を加味する構想はT38で見送り済み。
   // embeddingServiceを使った類似度計算は非同期I/Oのためasyncメソッドとする。
   async classify(utterance: string, tree: TopicTree, speakerId: string, targetId: string): Promise<TopicClassificationResult>;
 }

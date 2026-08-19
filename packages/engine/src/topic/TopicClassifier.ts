@@ -56,9 +56,11 @@ function toShortLabel(utterance: string): string {
  * 場合、utteranceと既存Topic.labelの埋め込みベクトルのコサイン類似度で判定する
  * （doc/todo.md T36の2026-08-14追記）。未注入時（テスト等）は文字bigramのJaccard係数に
  * フォールバックする。
- * RelationshipManager（関係性記憶との関連度判定、F4.2）も、実際の関連度判定
- * ロジックが未実装のT08時点では使い道が無いため依存に含めていない。関連度判定を
- * 実装する後続TODOでコンストラクタに追加する。
+ * RelationshipManager（関係性記憶との関連度判定、F4.2）は依存に含めていない。
+ * ConversationManagerのTopic判定は前ターンの発話を使う一手遅れ設計のため、今回の発話に
+ * 対する記憶検索結果はTopic判定時点でまだ存在せず、関連度を反映するにはパイプライン順序の
+ * 組み替えが必要になる。プロトタイプ規模ではそのコストに見合わないと判断し見送った
+ * （doc/todo.md T38、2026-08-19）。
  */
 export class TopicClassifier {
   constructor(private readonly embeddingService?: EmbeddingService) {}

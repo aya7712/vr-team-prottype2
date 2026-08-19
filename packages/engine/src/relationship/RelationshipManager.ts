@@ -10,8 +10,10 @@ function clamp(value: number, min: number, max: number): number {
  *
  * class-design.md 5章ではMemoryRetriever（F3）も依存として示されているが、
  * `resolve()`が返すRelationshipContextはメモリを含まず、共有記憶検索は
- * ConversationManager（T12）がMemoryRetrieverを別途呼び出す形で行う想定のため、
- * T06時点ではMemoryRetriever未実装（T07）を前提に依存から外している。
+ * ConversationManager（T12）がMemoryRetrieverを別途呼び出す形で行うため、依存から外している。
+ * features.md F4.2が挙げる「関連度をRelationshipManager側の判定に反映する」構想は
+ * T38（2026-08-19）で見送った（プロトタイプ規模ではパイプライン順序の組み替えコストに
+ * 見合わないと判断）。
  */
 export class RelationshipManager {
   constructor(
