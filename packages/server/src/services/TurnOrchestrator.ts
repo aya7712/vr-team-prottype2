@@ -87,8 +87,9 @@ export class TurnOrchestrator {
     private readonly topicRepository: TopicRepository,
     private readonly llmClient: LlmClient,
     private readonly eventBus: EngineEventBus,
-    // T15で実装済みのEmbeddingServiceをTopicClassifierの意味的類似度判定に使う
-    // （doc/todo.md T36の2026-08-14追記）。未注入時はTopicClassifierがJaccard係数に
+    // T15で実装済みのEmbeddingServiceをTopicClassifierの意味的類似度判定（T36）と
+    // MemoryRetrieverの意味検索（T15設計時点で配線漏れだったものをT37で解消）に使う。
+    // 未注入時はTopicClassifierがJaccard係数、MemoryRetrieverがキーワード一致のみに
     // フォールバックするため、既存呼び出し元との後方互換のためoptionalにする。
     private readonly embeddingService?: EmbeddingService,
   ) {}
@@ -184,7 +185,7 @@ export class TurnOrchestrator {
       new SpeechExpectationCalculator(),
     );
 
-    const memoryRetriever = new MemoryRetriever(this.memoryRepository);
+    const memoryRetriever = new MemoryRetriever(this.memoryRepository, this.embeddingService);
     const promptBuilder = new PromptBuilder(new PromptTemplateLoader(resolveEnginePromptsPath()));
 
     return new ConversationManager(

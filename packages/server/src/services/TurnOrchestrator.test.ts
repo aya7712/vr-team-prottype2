@@ -1,7 +1,7 @@
 import { describe, expect, it, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { EngineEventBus } from '@prottype2/engine';
-import type { LlmClient } from '@prottype2/engine';
+import type { LlmClient, EmbeddingService } from '@prottype2/engine';
 import { migrate } from '../db/migrate.js';
 import { SessionRepository } from '../db/repositories/SessionRepository.js';
 import { TurnRepository } from '../db/repositories/TurnRepository.js';
@@ -33,7 +33,7 @@ describe('TurnOrchestrator', () => {
     db?.close();
   });
 
-  function setup(llmClient: LlmClient = makeFakeLlmClient()) {
+  function setup(llmClient: LlmClient = makeFakeLlmClient(), embeddingService?: EmbeddingService) {
     db = new Database(':memory:');
     migrate(db);
     seedCharacters(db, ['char_a', 'char_b']);
@@ -61,9 +61,10 @@ describe('TurnOrchestrator', () => {
       topicRepository,
       llmClient,
       eventBus,
+      embeddingService,
     );
 
-    return { session, sessionRepository, turnRepository, orchestrator, eventBus };
+    return { session, sessionRepository, turnRepository, orchestrator, eventBus, memoryRepository };
   }
 
   it('startはmaxTurns分のturnsとtopics/turn_layer_eventsを永続化する', async () => {
@@ -108,6 +109,39 @@ describe('TurnOrchestrator', () => {
     const turns = turnRepository.listBySession(session.id);
     expect(turns.length).toBeLessThan(100);
     expect(sessionRepository.findById(session.id)?.status).toBe('stopped');
+  });
+
+  it('embeddingServiceを注入するとMemoryRetrieverの意味検索まで配線される（T37）', async () => {
+    const embed = vi.fn().mockResolvedValue(new Float32Array([1, 0]));
+    const embeddingService = { embed } as unknown as EmbeddingService;
+    const { session, orchestrator, memoryRepository } = setup(
+      makeFakeLlmClient(),
+      embeddingService,
+    );
+
+    // char_aが参照可能な記憶を1件仕込み、embedding付きにする。`repo.getEmbedding`は
+    // MemoryRetriever.computeSemanticScores()からのみ呼ばれる（TopicClassifierは
+    // MemoryRepositoryに一切依存しない）ため、これが呼ばれたことをもってMemoryRetriever
+    // 側の配線（embeddingServiceの伝播）を、TopicClassifier経由の呼び出しと区別して検証できる。
+    db.prepare(
+      `
+      INSERT INTO memory_preset_cache
+        (id, owner, participants_json, summary, tags_json, importance, shareable, body, raw_md_path, loaded_at)
+      VALUES ('mem_1', 'char_a', '["char_a"]', 'テストの記憶', '[]', 1, 1, '本文', 'x.md', ?)
+      `,
+    ).run(new Date().toISOString());
+    db.prepare(
+      `
+      INSERT INTO memory_embeddings (memory_id, memory_source, model, vector, updated_at)
+      VALUES ('mem_1', 'preset', 'test-model', ?, ?)
+      `,
+    ).run(Buffer.from(new Float32Array([1, 0]).buffer), new Date().toISOString());
+
+    const getEmbeddingSpy = vi.spyOn(memoryRepository, 'getEmbedding');
+
+    await orchestrator.start(session.id, 1);
+
+    expect(getEmbeddingSpy).toHaveBeenCalledWith('mem_1');
   });
 
   it('存在しないセッションIDに対してstartは例外を投げる', async () => {

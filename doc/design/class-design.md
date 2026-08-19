@@ -301,6 +301,8 @@ export interface MemoryQuery {
 }
 ```
 
+T15時点では`packages/server/src/services/TurnOrchestrator.ts`の`MemoryRetriever`生成箇所に`embeddingService`が渡されておらず、意味検索が本番の会話生成フローで実行されない配線漏れがあった。T37でT36と同様に`TurnOrchestrator`のコンストラクタから`embeddingService`を配線し、実運用でも意味的再ランキングが働くようにした。
+
 ## 7. F4: Topic Analyzer / ConversationState（`packages/engine/src/topic/`）
 
 ```text

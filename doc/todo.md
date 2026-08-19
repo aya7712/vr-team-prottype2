@@ -204,6 +204,19 @@
 
   テスト: `TopicClassifier`/`TopicContinuationScorer`の話題継続判定について、同一話題が継続すべき入力パターンでの期待値をユニットテストで確認する。label要約処理についても、発話に対して短い要約ラベルが生成されることを確認するテストを書く（LLM/Embedding呼び出しはモックまたは事前計算済みベクトルを使う）。必要であればT19のE2Eスクリプトを再実行し、`topicId`の変化回数が改善したことを確認する。
 
+- [x] **T37. MemoryRetrieverのembeddingService未配線（記憶の意味検索が実運用で機能していない）の調査・対応**
+  T36対応中に発見。`packages/server/src/services/TurnOrchestrator.ts`の`buildConversationManager`（187行目付近）が`new MemoryRetriever(this.memoryRepository)`と`embeddingService`を渡さずに`MemoryRetriever`を生成しており、`MemoryRetriever`（`packages/engine/src/memory/MemoryRetriever.ts`）のコンストラクタ第2引数`embeddingService?`が常に`undefined`になっている。`MemoryRetriever.retrieve()`はembeddingService未注入時はキーワード一致のみで動作する設計（`class-design.md` 6章、T15）のため、T15で謳われた「意味検索（コサイン類似度によるハイブリッド検索）」が本番の会話生成フロー（`POST /api/sessions/:id/run`経由）では一度も実行されておらず、キーワードマッチのみ（T07相当）にとどまっている可能性がある。`main.ts`/`e2eConversation.ts`では`embeddingService`インスタンス自体は生成済み（`CacheSyncService`向け）のため、`TurnOrchestrator`のコンストラクタに`embeddingService`を渡し（T36でTopicClassifier向けに追加した配線と同様の要領）、`buildConversationManager`内の`MemoryRetriever`生成にも渡す対応が想定される。まず意図的にキーワードのみで十分としていた設計判断なのか、単純な配線漏れなのかを`class-design.md`/`data-design.md`と照らして切り分けてから対応する。
+  テスト: `TurnOrchestrator`が`embeddingService`を`MemoryRetriever`まで配線していることを確認するユニットテスト。意味検索が有効な状態で、キーワード一致では拾えないが意味的に関連する記憶が上位に来ることを確認する統合テスト（Embedding生成はモックまたは事前計算済みベクトルを使う）。
+  **実施内容（対応済み）**: `class-design.md`と照合の結果、意図的な設計ではなく単純な配線漏れと判断。`buildConversationManager`内の`new MemoryRetriever(this.memoryRepository)`を`new MemoryRetriever(this.memoryRepository, this.embeddingService)`に修正した。ユニットテストは、`memory_preset_cache`＋`memory_embeddings`にレコードを1件仕込んだ上で`MemoryRepositoryImpl.getEmbedding`をスパイし、呼ばれたことを確認する形にした（`repo.getEmbedding`は`MemoryRetriever.computeSemanticScores()`からのみ呼ばれ`TopicClassifier`は呼ばないため、T36の配線と区別してMemoryRetriever側の配線を検証できる）。配線を意図的に元に戻すとこのテストが失敗することを確認済み。
+
+- [ ] **T38. 関連度判定（RelationshipManager×MemoryRetriever）の先送り解消**
+  T36対応中のTODOコメント調査で発見。`RelationshipManager`（`packages/engine/src/relationship/RelationshipManager.ts` 9〜14行目）と`TopicClassifier`（`packages/engine/src/topic/TopicClassifier.ts`）の両方に、互いを名指しして「相手側（`MemoryRetriever`）が実装されたら関連度判定ロジックを追加する」という先送りコメントが残っている。`MemoryRetriever`（F3.4）はT07・T15で実装済みだが、この「関連度判定」自体（`class-design.md` 5章で`RelationshipManager`の依存として示されている`MemoryRetriever`、および`TopicClassifier.classify()`のdocコメントにある「意味的類似度＋関係性記憶を加味した3段階判定」のうち関係性記憶を加味する部分）はいずれも未着手のまま。`class-design.md` 5章・7章と現状の実装の乖離を確認し、(1) 本当に必要な機能か（`requirements.md`の該当要件を確認）、(2) 必要であれば`RelationshipManager.resolve()`および/または`TopicClassifier.classify()`に`MemoryRetriever`（または共有記憶検索結果）を注入し、関連度を判定へ反映する実装を行う。不要と判断した場合は`class-design.md`のコメント・シグネチャ側を実装に合わせて更新する。
+  テスト: 関連度判定を実装する場合、共有記憶の有無/内容によって`RelationshipContext`や`TopicClassificationResult`の判定が変わることを確認するユニットテストを書く。
+
+- [ ] **T39. `SessionRecord.scenario`フィールドの整理**
+  T36対応中のTODOコメント調査で発見。`packages/server/src/db/repositories/types.ts`の`SessionRecord.scenario`（`unknown`型）が「F6.6（シナリオ入力）が未実装のため」というコメント付きで残っているが、T35対応で`features.md` F6.6は「初期トピック（文字列、必須）」に事実上スコープダウンされており（`initialTopic`フィールドが新設・実装済み）、`scenario`は`SessionService.ts`で常に`null`が入るだけの未使用フィールドになっている。`scenario`関連のコード（`SessionRecord`/`CreateSessionInput`の`scenario`、`sessions`テーブルの`scenario_json`カラム、`SessionRepository`/`SessionService`の該当箇所）を削除するか、将来のシナリオ入力機能拡張のために意図的に残すかを判断し、残す場合は`data-design.md`/`class-design.md`にその意図を明記する。削除する場合はT35と同様の`ALTER TABLE`方式マイグレーション機構（`schema_version`管理）でカラム削除に対応する。
+  テスト: `scenario`を削除する場合、`POST /api/sessions`が`scenario`無しのリクエストで正しく動作することを確認する既存テストの更新。マイグレーションのテスト（旧スキーマDBに適用してもデータが失われないこと）。
+
 ---
 
 ## 未着手事項の追加について
