@@ -57,11 +57,6 @@ export function ConversationView({ wsUrl, characters }: ConversationViewProps) {
   return (
     <div>
       <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>接続状態: {status}</p>
-      {sessionEnd && (
-        <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
-          {describeSessionEnd(sessionEnd.payload)}
-        </p>
-      )}
       {turns.length === 0 && (
         <p style={{ color: 'var(--color-text-muted)' }}>まだ発話がありません。</p>
       )}
@@ -74,6 +69,11 @@ export function ConversationView({ wsUrl, characters }: ConversationViewProps) {
           utterance={turn.utterance}
         />
       ))}
+      {sessionEnd && (
+        <p style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>
+          {describeSessionEnd(sessionEnd.payload)}
+        </p>
+      )}
     </div>
   );
 }
