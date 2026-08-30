@@ -1,7 +1,6 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import Database from 'better-sqlite3';
 import {
   EngineEventBus,
   TogetherClient,
@@ -11,7 +10,7 @@ import {
   DEFAULT_EMBEDDING_MODEL,
 } from '@prottype2/engine';
 import type { TurnResult } from '@prottype2/engine';
-import { migrate } from '../db/migrate.js';
+import { openMigratedDatabase } from '../db/migrate.js';
 import { SessionRepository } from '../db/repositories/SessionRepository.js';
 import { TurnRepository } from '../db/repositories/TurnRepository.js';
 import { CharacterCacheRepository } from '../db/repositories/CharacterCacheRepository.js';
@@ -54,19 +53,24 @@ if (!CHARACTER_DEF_PATH) {
   throw new Error('e2eConversation: CHARACTER_DEF_PATHが設定されていません');
 }
 
-// 実行時引数: 参加キャラクターID2〜4個（省略時char_a, char_b）、ターン数（省略時50）
+// 実行時引数: 参加キャラクターID2〜4個（省略時char_a, char_b）、ターン数（省略時50）、
+// --db=<path>（省略時:memory:、指定時はそのsqliteファイルに永続化する）。
 // T31（4体・結合テスト）でT19のスクリプトをそのまま2〜4体に一般化して使えるようにした。
+// --dbは自動化フロー（doc/agent-prompts/implementation-agent.md）が、実行後に
+// exportConversationReport.jsでセッションを参照できるようにするために追加した。
 const args = process.argv.slice(2);
-const maxTurns = Number(args.find((a) => /^\d+$/.test(a)) ?? '50');
-const argParticipantIds = args.filter((a) => !/^\d+$/.test(a));
+const dbPathArg = args.find((a) => a.startsWith('--db='));
+const dbPath = dbPathArg ? dbPathArg.slice('--db='.length) : ':memory:';
+const positionalArgs = args.filter((a) => !a.startsWith('--db='));
+const maxTurns = Number(positionalArgs.find((a) => /^\d+$/.test(a)) ?? '50');
+const argParticipantIds = positionalArgs.filter((a) => !/^\d+$/.test(a));
 const participantIds =
   argParticipantIds.length >= 2 && argParticipantIds.length <= 4
     ? argParticipantIds
     : ['char_a', 'char_b'];
 
 async function main(): Promise<void> {
-  const db = new Database(':memory:');
-  migrate(db);
+  const db = openMigratedDatabase(dbPath);
 
   const characterCacheRepository = new CharacterCacheRepository(db);
   const memoryRepository = new MemoryRepositoryImpl(db);
@@ -89,9 +93,9 @@ async function main(): Promise<void> {
   await cacheSyncService.sync();
 
   const sessionService = new SessionService(sessionRepository, characterCacheRepository);
-  const session = sessionService.createSession({ participantIds });
+  const session = sessionService.createSession({ participantIds, initialTopic: '雑談' });
   console.log(
-    `[e2e] セッション作成: ${session.id} participants=${participantIds.join(',')} maxTurns=${maxTurns}`,
+    `[e2e] セッション作成: ${session.id} participants=${participantIds.join(',')} maxTurns=${maxTurns} db=${dbPath}`,
   );
 
   const eventBus = new EngineEventBus();

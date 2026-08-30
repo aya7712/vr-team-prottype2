@@ -233,6 +233,11 @@
 
 ---
 
+- [x] **T42. Issue自動改善フローの自動化基盤（会話ログの静的HTMLレポート化、e2eConversation.tsのDB永続化対応）**
+  2026-08-30、ユーザーとの相談で「Issueを読み実装しPRを作るエージェントを定期実行し、複数案を比較検討する」自動化フローを検討した結果発見・対応。人間が生成された会話ログの良し悪しを判断する手段として、既存のLogBrowser（F9.4）と同等の情報を、サーバー・DB無しで開ける単一の静的HTMLとして書き出す`packages/server/src/scripts/exportConversationReport.ts`を新設した。またこのフローで会話サンプルを生成するために使う`packages/server/src/scripts/e2eConversation.ts`が`new Database(':memory:')`固定で、実行後にセッションデータが失われレポート生成に使えない問題と、T35（`initialTopic`必須化）に追従できておらず`SessionValidationError`で落ちる既存バグを発見したため、`--db=<path>`引数の追加とinitialTopicの補完で修正した。
+  テスト: `exportConversationReport.ts`はスクリプト単体（レンダリング関数）のため既存の`npm test`（server）の対象外。`e2eConversation.ts`修正後、実際に`--db=<path>`指定でセッションが永続化されること、生成したsqliteファイルから`exportConversationReport.js`でレポートが生成できることを手動実行で確認した。
+  **実施内容（対応済み）**: 上記の通り実装・動作確認済み。自動化フロー自体のオーケストレーション（案出しエージェント／実装エージェントのプロンプト）は`doc/agent-prompts/`配下に追加（`packages/`配下ではないため本trailerの対象外）。
+
 ## 未着手事項の追加について
 
 新たに必要なTODOに気づいた場合は、該当フェーズの末尾に追記してから着手する（既存の番号は変更しない。新規は次の番号を採番する）。大きく設計を変える必要が生じた場合は、実装を進める前にユーザーに確認する。

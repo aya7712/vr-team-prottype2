@@ -1,0 +1,70 @@
+# 実装エージェント プロンプトテンプレート
+
+[[proposal-agent]]が出した案1件を、worktree上で実装しPRを作るエージェント用のプロンプト。
+案の数だけ、同一メッセージ内で並列に起動する（`Agent`ツール、`isolation: "worktree"`）。
+
+## テンプレート
+
+```
+あなたはprottype2リポジトリの改善案を1件だけ実装する担当です。
+以下のIssueと、あなたが担当する案の説明を踏まえて実装してください。
+他の案（別の実装エージェントが並行して担当しています）とは独立して進めてください。
+
+Issue: {{ISSUE_URL}}
+
+# あなたが担当する案
+
+{{PROPOSAL_JSON_ONE_ITEM}}
+
+# 手順
+
+1. 上記の案の方向性通りに実装する。案の再解釈・別方向への変更はしない。
+   ただし実装の細部（変数名・エラーハンドリング等）はあなたの判断でよい。
+2. 既存のlint/typecheck/testを通す（`npm run lint && npm run typecheck && npm run test`）。
+3. 改善が効いているか確認するため、実際にセッションを1つ実行する。
+   `npm run build --workspace packages/server` の後、
+   `node packages/server/dist/scripts/e2eConversation.js char_a char_b 30 --db=<worktree内の適当なパス>.sqlite`
+   のように`--db=<path>`を必ず指定すること（省略時は`:memory:`扱いになり、
+   実行後にデータが消えて手順4のレポート生成ができなくなる）。
+   ターン数やキャラクターの組み合わせは案の内容に応じて変えてよい。
+4. 実行時にコンソールへ出力される`セッション作成: <sessionId>`のIDを使い、
+   手順3と同じ`--db`のsqliteファイルを指定して会話ログレポートを生成する:
+   `node packages/server/dist/scripts/exportConversationReport.js <sessionId> <出力先パス> <手順3のdbパス>`
+5. 生成したHTMLを`Artifact`ツールで公開する（favicon等は適当でよい、
+   descriptionに案のタイトルと"Issue #<番号>"を含める）。
+6. **`packages/`配下を変更した場合、コミット前に必ず自己レビューを行う。**
+   これはこのリポジトリ自身の運用ルール（`doc/todo.md`「このファイルの使い方」4番、
+   `doc/design/implementation-rules.md` 9.1）であり、あなた自身（実装した本人）が
+   レビューするのではなく、**独立した`Agent`ツール呼び出し（`model: "sonnet"`固定、
+   `subagent_type`はレビュー用のもの。無ければ`general-purpose`で代替可）**で
+   別視点のレビューをさせること。レビュー観点は以下を含めること:
+   - `doc/design/implementation-rules.md`の規約（命名規約・ディレクトリ/依存ルール等）
+   - `doc/design/architecture.md`/`class-design.md`/`data-design.md`との乖離
+   - 冗長な実装・過剰な抽象化がないか
+   レビュー結果に対応した上で、コミットメッセージに
+   `Self-Review: sonnet, TODO=<doc/todo.mdに追記した項番>, findings=<件数>-<対応状況>`
+   というtrailerを付けること（`.husky/commit-msg`がこれを検証し、無ければコミットが
+   拒否される）。`doc/todo.md`への項番追記自体もこの手順に含む
+   （末尾の「未着手事項の追加について」の指示に従う）。
+7. ブランチをpushし、PRを作成する。PR本文には以下を必ず含める:
+   - この案の概要（案の説明をそのまま転記でよい）
+   - 手順5で公開したArtifactのURL（人間がスマホから会話ログを確認するため）
+   - 実行したセッションIDと、初期トピック等の再現条件
+   - 手順6の自己レビューで見つかった指摘とその対応状況
+8. 最後にPR URLとArtifact URLを報告する。
+
+# 注意
+
+- 他の案のブランチ・worktreeには触れないこと。
+- コミット・push・PR作成は許可された操作です。ただし force-push や
+  他ブランチへの影響がある操作は行わないでください。
+- 手順6の自己レビューを省略してコミットしないこと。`packages/`配下を触っていない
+  （`doc/`のみ等の）場合はtrailer・レビューとも不要（`implementation-rules.md` 9.1参照）。
+```
+
+## 起動側の注意
+
+- `Agent`ツール呼び出し時、`isolation: "worktree"`を指定すると
+  worktreeのライフサイクル（作成・完了後のcleanup or 保持）を自動管理してくれる。
+- N体を並列起動する際は、1つのメッセージ内で複数のAgent呼び出しを積むこと
+  （逐次呼び出しにすると並列実行にならない）。
