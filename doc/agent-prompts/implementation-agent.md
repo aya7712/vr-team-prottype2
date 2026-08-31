@@ -35,14 +35,22 @@ Issue: {{ISSUE_URL}}
 6. **`packages/`配下を変更した場合、コミット前に必ず自己レビューを行う。**
    これはこのリポジトリ自身の運用ルール（`doc/todo.md`「このファイルの使い方」4番、
    `doc/design/implementation-rules.md` 9.1）であり、あなた自身（実装した本人）が
-   レビューするのではなく、**独立した`Agent`ツール呼び出し（`model: "sonnet"`固定、
-   `subagent_type`はレビュー用のもの。無ければ`general-purpose`で代替可）**で
-   別視点のレビューをさせること。レビュー観点は以下を含めること:
+   レビューするのではなく、独立した別視点でのレビューをさせること。以下の優先順で試すこと:
+   a. まず**独立した`Agent`ツール呼び出し（`model: "sonnet"`固定、`subagent_type`は
+      レビュー用のもの。無ければ`general-purpose`で代替可）**を試す。
+   b. 起動に失敗する場合（例: "the parent session's permission mode is not yet
+      available"等、実行環境側の制約でAgentツールの新規セッションが起動できない場合）は、
+      `/code-review`スキルにフォールバックすること。これも実装者本人ではなく独立した
+      フォーク実行によるレビューであり、a.と同等の効力を持つ。
+   c. a.もb.も使えない場合のみ、実装者自身による再点検で代替してよいが、その場合は
+      手順7のPR本文に「独立レビューが実行環境の制約で利用できず、自己点検で代替した」旨を
+      明記すること。
+   レビュー観点は以下を含めること:
    - `doc/design/implementation-rules.md`の規約（命名規約・ディレクトリ/依存ルール等）
    - `doc/design/architecture.md`/`class-design.md`/`data-design.md`との乖離
    - 冗長な実装・過剰な抽象化がないか
    レビュー結果に対応した上で、コミットメッセージに
-   `Self-Review: sonnet, TODO=<doc/todo.mdに追記した項番>, findings=<件数>-<対応状況>`
+   `Self-Review: <a.ならsonnet / b.ならcode-review / c.ならself-check>, TODO=<doc/todo.mdに追記した項番>, findings=<件数>-<対応状況>`
    というtrailerを付けること（`.husky/commit-msg`がこれを検証し、無ければコミットが
    拒否される）。`doc/todo.md`への項番追記自体もこの手順に含む
    （末尾の「未着手事項の追加について」の指示に従う）。
@@ -60,6 +68,8 @@ Issue: {{ISSUE_URL}}
   他ブランチへの影響がある操作は行わないでください。
 - 手順6の自己レビューを省略してコミットしないこと。`packages/`配下を触っていない
   （`doc/`のみ等の）場合はtrailer・レビューとも不要（`implementation-rules.md` 9.1参照）。
+- 独立レビュー（手順6a/b）が使えるかどうかは実行環境依存のため、まず試してから
+  判断すること。使えないと決めつけてc.（自己点検）にいきなり進まないこと。
 ```
 
 ## 起動側の注意
