@@ -84,6 +84,7 @@ function makeConversationManager(
   llmResponses: string[],
   eventBus?: EngineEventBus,
   characterLlmConfigs?: Partial<Record<'char_a' | 'char_b', CharacterDefRecord['llm']>>,
+  templateContent = '{{characterName}}が{{topicLabel}}について{{dialogueAct}}する。',
 ): { manager: ConversationManager; llmClient: LlmClient; relationshipGraph: RelationshipGraph } {
   const relationshipGraph = new RelationshipGraph();
   relationshipGraph.addEdge({
@@ -111,9 +112,7 @@ function makeConversationManager(
   const memoryRepo = new InMemoryMemoryRepository([]);
   const memoryRetriever = new MemoryRetriever(memoryRepo);
 
-  const templateLoader = makeFakeTemplateLoader(
-    '{{characterName}}が{{topicLabel}}について{{dialogueAct}}する。',
-  );
+  const templateLoader = makeFakeTemplateLoader(templateContent);
   const promptBuilder = new PromptBuilder(templateLoader);
 
   let callIndex = 0;
@@ -211,6 +210,37 @@ describe('ConversationManager', () => {
 
     const [prompt] = (llmClient.complete as Mock).mock.calls[0] as [string];
     expect(prompt).toContain('夏祭りの思い出');
+  });
+
+  // Issue #1: recentDialogueに話者名だけを並べると、直前に他キャラクターが異なる口調で
+  // 話した内容がLLMへそのまま渡り、生成対象キャラクターがその口調に引っ張られやすい。
+  // 各行に[自分]/[相手]ラベルを付けて発言主体を区別できることを回帰確認する。
+  it('recentDialogueの各行には話者が自分か相手かを示す[自分]/[相手]ラベルが付与される', async () => {
+    const { manager, llmClient } = makeConversationManager(
+      ['「一言目」', '「二言目」', '「三言目」'],
+      undefined,
+      undefined,
+      '{{recentDialogue}}',
+    );
+    const sessionState = makeSessionState();
+
+    const first = await manager.runTurn(sessionState);
+    const second = await manager.runTurn(sessionState);
+    await manager.runTurn(sessionState);
+
+    const firstName = first.speakerId === 'char_a' ? '宇良' : '楽';
+    const secondName = second.speakerId === 'char_a' ? '宇良' : '楽';
+
+    const prompts = (llmClient.complete as Mock).mock.calls.map((call) => call[0] as string);
+
+    // 2ターン目のプロンプトでは、1ターン目の発話は自分ではなく相手の発話として扱われる。
+    expect(prompts[1]).toContain(`[相手] ${firstName}: 一言目`);
+    expect(prompts[1]).not.toContain(`[自分] ${firstName}: 一言目`);
+
+    // 3ターン目（1ターン目と同じ話者）のプロンプトでは、1ターン目の発話は自分の発話、
+    // 2ターン目の発話は相手の発話として区別される。
+    expect(prompts[2]).toContain(`[自分] ${firstName}: 一言目`);
+    expect(prompts[2]).toContain(`[相手] ${secondName}: 二言目`);
   });
 
   it('runTurnを繰り返すと発話者が交互に切り替わる（2体会話）', async () => {

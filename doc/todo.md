@@ -238,6 +238,14 @@
   テスト: `exportConversationReport.ts`はスクリプト単体（レンダリング関数）のため既存の`npm test`（server）の対象外。`e2eConversation.ts`修正後、実際に`--db=<path>`指定でセッションが永続化されること、生成したsqliteファイルから`exportConversationReport.js`でレポートが生成できることを手動実行で確認した。
   **実施内容（対応済み）**: 上記の通り実装・動作確認済み。自動化フロー自体のオーケストレーション（案出しエージェント／実装エージェントのプロンプト）は`doc/agent-prompts/`配下に追加（`packages/`配下ではないため本trailerの対象外）。
 
+---
+
+- [x] **T43. Issue #1（口調が直前の他キャラクター発言に引っ張られる）対応: recentDialogueの自キャラ/他キャラ発言分離**
+  2026-08-31、T42の自動改善フロー最初の運用として、Issue #1（`vr-team-prottype2` Issue #1: キャラクターの口調が、直前に発言した別キャラクターの口調に引っ張られることがある）への改善案（plan-a）を実装した。原因は`ConversationManager.buildPrompt`が`recentDialogue`（直近3発話）を話者名＋発話のみで並べており、直前に他キャラクターが異なる口調で話した内容が生成対象キャラクターの直下にそのまま置かれてLLMがその口調を模倣しやすくなっていたこと。対応として(1)`packages/engine/prompts/utterance/base.md`の「直前の会話」セクションに、他キャラクターの発言は参考情報でありその口調・語尾・一人称を模倣してはならない旨の明示的な注意書きを追加し、(2)`ConversationManager.buildPrompt`の`recentDialogue`生成部で各行に`[自分]`/`[相手]`ラベルを付与して視覚的にも発言主体を区別できるようにし、(3)キャラクター設定（口調のサンプル・一人称）を再掲する「口調の再確認」セクションを`recentDialogue`直後・生成指示の直前に追加し、直近の入力として口調指定が強く効くようにした。新規プレースホルダーは追加していない（`toneSample`/`firstPerson`/`characterName`を再利用）ため`class-design.md` 10.1章のプレースホルダー一覧は変更不要と判断した。
+  テスト: `ConversationManager.test.ts`に、2ターン目のプロンプトでは1ターン目の発話が`[相手]`ラベルになり、3ターン目（1ターン目と同じ話者）では`[自分]`/`[相手]`が正しく区別されることを確認するユニットテストを追加した。既存170件（engine）・76件（server）のテストは全て通過を確認した。
+  効果検証について: `CHARACTER_DEF_PATH`配下の実キャラクター4体（char_a〜char_d、口調がそれぞれ明確に異なる）でE2Eスクリプト（`e2eConversation.js`）を実行し`exportConversationReport.js`で会話ログレポートを生成する検証を試みたが、このタスクを実行したサンドボックス環境の egress プロキシがTogether AI（`api.together.xyz`）へのCONNECTを組織ポリシーにより403で拒否しており（`curl`で再現確認、リトライはREADME方針に従い行っていない）、実LLM呼び出しを伴う実行ができなかった。そのためこのタスクでは実会話ログでの効果確認ができておらず、Together AIへのegress許可がある環境での再実行を別途行う必要がある。
+  **実施内容（対応済み、効果検証は未実施）**: 上記(1)〜(3)を実装し、lint/typecheck/format:check/test（`npm run lint && npm run typecheck && npm run format:check && npm run test`、`CHARACTER_DEF_PATH`設定済み）は全て成功を確認した。自己レビュー（本項番、implementation-rules.md 9.1）については、独立したAgentツール呼び出し（`mcp__Claude_Code_Remote__create_session`）を複数回試みたが、いずれも`the parent session's permission mode is not yet available`エラーで起動できなかった（このセッションが多重にネストしたサブエージェントであることに起因すると推測、過去セッション`session_01J8SQA3KhDyjFEEFcYirLG2`の会話でも同種の懸念が記録されている）。ツール制約のためやむを得ず、実装エージェント自身が実装完了後に読み直しで観点1〜4（実装規約違反・architecture/class-design.mdとの乖離・冗長実装/過剰抽象化・その他バグ）を再点検する形で代替した。結果: must-fix 0件。nice-to-have 1件（`recentDialogue`の`[自分]`/`[相手]`ラベルの新規ユニットテストが2体構成のみを対象としており、3〜4体構成での明示的なテストは無い。ただしラベル判定ロジック自体は`u.speakerId === speakerId`という参加人数に依存しない単純な等価比較であり、3〜4体構成でも同じロジックが適用されるため実害リスクは低いと判断し、プロトタイプ規模ではテスト追加を見送った）。
+
 ## 未着手事項の追加について
 
 新たに必要なTODOに気づいた場合は、該当フェーズの末尾に追記してから着手する（既存の番号は変更しない。新規は次の番号を採番する）。大きく設計を変える必要が生じた場合は、実装を進める前にユーザーに確認する。

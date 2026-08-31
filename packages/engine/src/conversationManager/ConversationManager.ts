@@ -291,9 +291,17 @@ export class ConversationManager {
       throw new Error(`ConversationManager: CharacterDefRecordが見つかりません (${speakerId})`);
     }
 
+    // 直前の会話には生成対象キャラクター自身の発話と他キャラクターの発話が混在する。
+    // 話者名だけを並べるとLLMが直前の他キャラクターの口調に引っ張られやすい
+    // （Issue #1）ため、各行に[自分]/[相手]ラベルを付けて発言の主体を視覚的に
+    // 区別できるようにする（実装者判断、doc/design/implementation-rules.md 9章）。
     const recentDialogue = sessionState.recentUtterances
       .slice(-3)
-      .map((u) => `${this.characterDefs.get(u.speakerId)?.name ?? u.speakerId}: ${u.utterance}`)
+      .map((u) => {
+        const label = u.speakerId === speakerId ? '自分' : '相手';
+        const name = this.characterDefs.get(u.speakerId)?.name ?? u.speakerId;
+        return `[${label}] ${name}: ${u.utterance}`;
+      })
       .join('\n');
 
     return this.promptBuilder.build('utterance/base', {
