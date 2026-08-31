@@ -188,6 +188,7 @@ export class CharacterBrain {
 
 - `EmotionUpdater` / `GoalUpdater` / `IntentUpdater` はそれぞれ独立したルールベース計算クラスとし、単体テストしやすくする。
 - `SpeakingStyleResolver` はF2（Relationship Manager）の出力を受け取って`speakingStyle`を更新するだけの薄いクラス（F2側にロジックの主体を置き、ここでは適用のみ行う）。
+  加えて`describe(style: SpeakingStyleModifier): string`を持つ（T43、Issue #1対応）。`honorificLevel`/`distance`/`jokeTolerance`/`addressTerm`の数値をLLMプロンプト向けの自然言語の口調説明文へ変換するもので、`resolve()`と異なりロジックを持つが、`RelationshipContext`から新たな数値を計算するわけではなく既存の`SpeakingStyleModifier`の表現形式を変えるだけのため、本クラスの責務内に留めた（F2側に置くと「関係性→speakingStyleの数値」と「speakingStyleの数値→プロンプト文言」という別レイヤーの変換が混在してしまうため）。
 
 ## 5. F2: Relationship Engine（`packages/engine/src/relationship/`）
 
@@ -439,6 +440,10 @@ export class ConversationManager {
   // シナリオ設定を受けた終了判定込みの複数ターン実行（server層のPOST /run から呼ばれる）
   async runSession(sessionState: SessionState, maxTurns: number): AsyncGenerator<TurnResult>;
 }
+```
+
+- 上記コンストラクタ一覧はT12時点のもので、その後のTODOで`topicBranchMerger: TopicBranchMerger`（T30）、`relationshipUpdater: RelationshipUpdater`（T31）、`speakingStyleResolver: SpeakingStyleResolver`（T43、Issue #1対応。デフォルト値ありのoptional引数として`eventBus`より後ろに追加し既存の位置引数呼び出しとの互換を保った）が追加されている。実体は`ConversationManager.ts`を参照。
+- `speakingStyleResolver`は`buildPrompt`内で`characterState.speakingStyle`（数値）を`describe()`で自然言語の口調説明に変換し、`{{speakingStyle}}`プレースホルダー（10.1節）へ渡す用途に使う。
 
 // class-design.mdに定義が無かったためconversationManager/types.tsに新規定義（T12）。
 // ターンをまたいでミュータブルに更新される（短期記憶はdata-design.md 6.4のオンメモリ配列に対応）。

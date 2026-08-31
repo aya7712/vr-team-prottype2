@@ -1,4 +1,5 @@
 import type { CharacterBrain } from '../character/CharacterBrain.js';
+import { SpeakingStyleResolver } from '../character/SpeakingStyleResolver.js';
 import type { CharacterDefRecord } from '../data/types.js';
 import type { RelationshipManager } from '../relationship/RelationshipManager.js';
 import { RelationshipUpdater } from '../relationship/RelationshipUpdater.js';
@@ -67,6 +68,9 @@ export class ConversationManager {
     // 全6ペアのtrust/intimacyが変化しないことから発覚したため、ここで配線する。
     private readonly relationshipUpdater: RelationshipUpdater = new RelationshipUpdater(),
     private readonly eventBus?: EngineEventBus,
+    // Issue #1 plan-b: speakingStyle（数値）を自然言語の口調説明へ変換してbuildPromptへ渡すために追加。
+    // 既存の呼び出し元（TurnOrchestrator等）との位置引数互換を保つため、eventBusより後ろに追加した。
+    private readonly speakingStyleResolver: SpeakingStyleResolver = new SpeakingStyleResolver(),
   ) {}
 
   async runTurn(sessionState: SessionState): Promise<TurnResult> {
@@ -302,7 +306,7 @@ export class ConversationManager {
       toneSample: speakerDef.toneSample ?? '',
       firstPerson: speakerDef.firstPerson ?? '',
       emotion: characterState.emotion.label,
-      speakingStyle: `敬語レベル${characterState.speakingStyle.honorificLevel.toFixed(1)}/距離感${characterState.speakingStyle.distance.toFixed(1)}`,
+      speakingStyle: this.speakingStyleResolver.describe(characterState.speakingStyle),
       targetName: targetDef?.name ?? targetId,
       addressTerm: relationshipContext.addressTerm,
       dialogueAct: act,

@@ -12,8 +12,13 @@
 ## 現在の状態
 
 - 感情: {{emotion}}
-- 話し方の補正（敬語レベル・距離感・呼び方）: {{speakingStyle}}
 - 会話相手: {{targetName}}（呼び方: {{addressTerm}}）
+
+## {{characterName}}の今の口調（相手との関係性に基づく）
+
+{{speakingStyle}}
+
+他の登場人物の発言（直前の会話）の口調に引っ張られず、必ず上記の{{characterName}}自身の口調・{{toneSample}}に従って話してください。
 
 ## 今回の発話行為
 
