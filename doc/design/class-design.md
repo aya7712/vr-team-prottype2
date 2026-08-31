@@ -496,6 +496,7 @@ export class PromptBuilder {
 |---|---|---|
 | `utterance/base.md` | セリフ生成の基本テンプレート（F7.1） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{emotion}}`, `{{speakingStyle}}`, `{{targetName}}`, `{{addressTerm}}`, `{{dialogueAct}}`, `{{retrievedMemory}}`, `{{recentDialogue}}` |
 | `utterance/with_shared_memory.md` | 共有記憶を参照させたい場合に`base.md`の出力へ追加で組み合わせるテンプレート | `{{baseInstruction}}`, `{{targetName}}`, `{{characterName}}`, `{{sharedMemory}}` |
+| `utterance/tone_retry.md` | T43（F7.3、Issue #1）: `OutputParser.checkToneConsistency`が他キャラのfirstPerson/toneSampleの混入を検知した際に、`base.md`の出力へ口調修正指示を追加で組み合わせるテンプレート | `{{baseInstruction}}`, `{{characterName}}`, `{{firstPerson}}`, `{{toneSample}}`, `{{violatingCharacterNames}}`, `{{violatingPatterns}}` |
 
 T10時点では`utterance/`配下のみ作成した。`dialogueAct/candidate_selection.md`（F5.5、小型LLMによるAct候補提案の任意機能）はF5.5自体が未実装のため作成していない。
 

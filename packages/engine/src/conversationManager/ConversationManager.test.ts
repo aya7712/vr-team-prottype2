@@ -80,10 +80,28 @@ function makeFakeTemplateLoader(templateContent: string): PromptTemplateLoader {
   return { load: vi.fn().mockReturnValue(templateContent) } as unknown as PromptTemplateLoader;
 }
 
+// T43: checkToneConsistencyの再生成テストは'utterance/base'と'utterance/tone_retry'で
+// 異なるテンプレート内容が必要なため、テンプレート名ごとに内容を切り替えられるローダーを追加した。
+function makeMultiTemplateLoader(templates: Record<string, string>): PromptTemplateLoader {
+  return {
+    load: vi.fn((name: string) => {
+      const content = templates[name];
+      if (content === undefined) {
+        throw new Error(`makeMultiTemplateLoader: 未登録のテンプレート "${name}"`);
+      }
+      return content;
+    }),
+  } as unknown as PromptTemplateLoader;
+}
+
 function makeConversationManager(
   llmResponses: string[],
   eventBus?: EngineEventBus,
   characterLlmConfigs?: Partial<Record<'char_a' | 'char_b', CharacterDefRecord['llm']>>,
+  options?: {
+    templateLoader?: PromptTemplateLoader;
+    characterDefOverrides?: Partial<Record<'char_a' | 'char_b', Partial<CharacterDefRecord>>>;
+  },
 ): { manager: ConversationManager; llmClient: LlmClient; relationshipGraph: RelationshipGraph } {
   const relationshipGraph = new RelationshipGraph();
   relationshipGraph.addEdge({
@@ -111,9 +129,9 @@ function makeConversationManager(
   const memoryRepo = new InMemoryMemoryRepository([]);
   const memoryRetriever = new MemoryRetriever(memoryRepo);
 
-  const templateLoader = makeFakeTemplateLoader(
-    '{{characterName}}が{{topicLabel}}について{{dialogueAct}}する。',
-  );
+  const templateLoader =
+    options?.templateLoader ??
+    makeFakeTemplateLoader('{{characterName}}が{{topicLabel}}について{{dialogueAct}}する。');
   const promptBuilder = new PromptBuilder(templateLoader);
 
   let callIndex = 0;
@@ -126,8 +144,20 @@ function makeConversationManager(
   };
 
   const characterDefs = new Map<string, CharacterDefRecord>([
-    ['char_a', makeCharacterDef('char_a', '宇良', characterLlmConfigs?.char_a ?? null)],
-    ['char_b', makeCharacterDef('char_b', '楽', characterLlmConfigs?.char_b ?? null)],
+    [
+      'char_a',
+      {
+        ...makeCharacterDef('char_a', '宇良', characterLlmConfigs?.char_a ?? null),
+        ...options?.characterDefOverrides?.char_a,
+      },
+    ],
+    [
+      'char_b',
+      {
+        ...makeCharacterDef('char_b', '楽', characterLlmConfigs?.char_b ?? null),
+        ...options?.characterDefOverrides?.char_b,
+      },
+    ],
   ]);
 
   const characterBrains = new Map([
@@ -354,6 +384,138 @@ describe('ConversationManager', () => {
     expect(llmClient.complete).toHaveBeenNthCalledWith(2, expect.any(String), {
       model: 'model-b',
       temperature: 0.9,
+    });
+  });
+
+  // T43（Issue #1）: 他キャラの口調が混入した発話を検知し、1回だけ再生成することを確認する。
+  describe('checkToneConsistencyによる再生成（T43、Issue #1）', () => {
+    const toneRetryTemplateLoader = makeMultiTemplateLoader({
+      'utterance/base': '{{characterName}}が{{topicLabel}}について{{dialogueAct}}する。',
+      'utterance/tone_retry':
+        '{{baseInstruction}}\n---\n口調修正: char={{characterName}} fp={{firstPerson}} tone={{toneSample}} ng_chars={{violatingCharacterNames}} ng_patterns={{violatingPatterns}}',
+    });
+
+    it('他キャラのfirstPerson/toneSampleが混入した発話は補正指示付きプロンプトで再生成される', async () => {
+      const { manager, llmClient } = makeConversationManager(
+        ['「それは面白いでござる」', '「それは面白いね」'],
+        undefined,
+        undefined,
+        {
+          templateLoader: toneRetryTemplateLoader,
+          characterDefOverrides: {
+            char_b: { firstPerson: '拙者', toneSample: 'それがしはそう思うでござる。' },
+          },
+        },
+      );
+      const sessionState = makeSessionState();
+
+      const result = await manager.runTurn(sessionState);
+
+      expect(result.speakerId).toBe('char_a');
+      // LLM呼び出し自体は2回（初回＋リトライ）発生している。
+      expect(llmClient.complete).toHaveBeenCalledTimes(2);
+      expect(result.utterance).toBe('それは面白いね');
+
+      const [retryPrompt] = (llmClient.complete as Mock).mock.calls[1] as [string];
+      expect(retryPrompt).toContain('でござる');
+      expect(retryPrompt).toContain('楽');
+    });
+
+    it('口調違反がなければ再生成しない', async () => {
+      const { manager, llmClient } = makeConversationManager(
+        ['「それは面白いね」'],
+        undefined,
+        undefined,
+        {
+          templateLoader: toneRetryTemplateLoader,
+          characterDefOverrides: {
+            char_b: { firstPerson: '拙者', toneSample: 'それがしはそう思うでござる。' },
+          },
+        },
+      );
+      const sessionState = makeSessionState();
+
+      const result = await manager.runTurn(sessionState);
+
+      expect(llmClient.complete).toHaveBeenCalledTimes(1);
+      expect(result.utterance).toBe('それは面白いね');
+    });
+
+    it('再生成しても違反が残る場合は1回のリトライで打ち切りその結果を採用する', async () => {
+      const { manager, llmClient } = makeConversationManager(
+        ['「それは面白いでござる」', '「まだでござると言ってしまう」'],
+        undefined,
+        undefined,
+        {
+          templateLoader: toneRetryTemplateLoader,
+          characterDefOverrides: {
+            char_b: { firstPerson: '拙者', toneSample: 'それがしはそう思うでござる。' },
+          },
+        },
+      );
+      const sessionState = makeSessionState();
+
+      const result = await manager.runTurn(sessionState);
+
+      expect(llmClient.complete).toHaveBeenCalledTimes(2);
+      expect(result.utterance).toBe('まだでござると言ってしまう');
+    });
+
+    it('再生成が発生したターンでもlayer:llmイベントは最終的に採用したプロンプト/出力で1回だけ発行される', async () => {
+      const eventBus = new EngineEventBus();
+      const { manager } = makeConversationManager(
+        ['「それは面白いでござる」', '「それは面白いね」'],
+        eventBus,
+        undefined,
+        {
+          templateLoader: toneRetryTemplateLoader,
+          characterDefOverrides: {
+            char_b: { firstPerson: '拙者', toneSample: 'それがしはそう思うでござる。' },
+          },
+        },
+      );
+      const sessionState = makeSessionState();
+
+      const llmPayloads: { prompt: string; rawOutput: string }[] = [];
+      eventBus.on('layer:llm', (payload) =>
+        llmPayloads.push(payload as { prompt: string; rawOutput: string }),
+      );
+
+      const result = await manager.runTurn(sessionState);
+
+      // LogBrowser/exportConversationReportはlayer:llmの最初の1件のみを表示に使うため、
+      // 再生成前の一時出力を残さず、最終的に採用した出力と矛盾しないようにする
+      // （自己レビューで発見）。
+      expect(llmPayloads).toHaveLength(1);
+      expect(llmPayloads[0].rawOutput).toBe('「それは面白いね」');
+      expect(llmPayloads[0].prompt).toContain('でござる');
+      expect(result.utterance).toBe('それは面白いね');
+    });
+
+    it('話者自身と同じ一人称を共有する他キャラクターの一人称は誤検知しない', async () => {
+      // 実際のcharacter_defでは複数キャラが同じ一人称（例:「俺」）を持つケースがある。
+      // 話者自身の正当な一人称使用まで他キャラの口調違反として誤検知しないことを確認する。
+      const { manager, llmClient } = makeConversationManager(
+        ['「俺はそう思うよ」'],
+        undefined,
+        undefined,
+        {
+          templateLoader: toneRetryTemplateLoader,
+          characterDefOverrides: {
+            // char_aのデフォルトfirstPersonは'私'（makeCharacterDef）なので、
+            // ここでは話者char_aと同じ一人称をchar_bにも持たせる。
+            char_a: { firstPerson: '俺' },
+            char_b: { firstPerson: '俺', toneSample: null },
+          },
+        },
+      );
+      const sessionState = makeSessionState();
+
+      const result = await manager.runTurn(sessionState);
+
+      expect(result.speakerId).toBe('char_a');
+      expect(llmClient.complete).toHaveBeenCalledTimes(1);
+      expect(result.utterance).toBe('俺はそう思うよ');
     });
   });
 });

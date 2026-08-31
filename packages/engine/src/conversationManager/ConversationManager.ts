@@ -3,7 +3,13 @@ import type { CharacterDefRecord } from '../data/types.js';
 import type { RelationshipManager } from '../relationship/RelationshipManager.js';
 import { RelationshipUpdater } from '../relationship/RelationshipUpdater.js';
 import type { MemoryRetriever } from '../memory/MemoryRetriever.js';
-import type { PromptBuilder, LlmClient, OutputParser } from '../llm/index.js';
+import type {
+  PromptBuilder,
+  LlmClient,
+  OutputParser,
+  OtherCharacterToneProfile,
+  ToneConsistencyCheckResult,
+} from '../llm/index.js';
 import type { TopicClassifier } from '../topic/TopicClassifier.js';
 import type { TopicParameterUpdater } from '../topic/TopicParameterUpdater.js';
 import type { TopicContinuationScorer } from '../topic/TopicContinuationScorer.js';
@@ -44,6 +50,12 @@ const ACT_TO_TOPIC_EVENT: Partial<
  * - `characterDefs: Map<string, CharacterDefRecord>`（T04出力。CharacterState（F1）は
  *   キャラクター名等の静的情報を持たないため、プロンプト構築に必要な
  *   name/personality/toneSample/firstPerson/ngTopicsの参照用に追加した）
+ *
+ * T43（Issue #1、implementation-rules.md 9章）: 生成された発話が話者以外の参加キャラクターの
+ * firstPerson/toneSampleの語尾パターンを含んでいないかを`OutputParser.checkToneConsistency`で
+ * 検知し、違反時は口調の修正指示を追加したプロンプト（`utterance/tone_retry.md`、F7.1a）で
+ * 1回だけ再生成する。プロンプト本体（`utterance/base.md`）は変更せず、生成後の検証・是正
+ * という別レイヤーで対処する。
  */
 export class ConversationManager {
   constructor(
@@ -153,12 +165,32 @@ export class ConversationManager {
       topic,
     );
     const speakerLlmConfig = this.characterDefs.get(speakerId)?.llm ?? null;
-    const rawOutput = await this.llmClient.complete(prompt, {
+    const llmCallOptions = {
       model: speakerLlmConfig?.model,
       temperature: speakerLlmConfig?.temperature,
-    });
-    const utterance = this.outputParser.extractUtterance(rawOutput);
-    this.eventBus?.emit('layer:llm', { prompt, rawOutput });
+    };
+    let finalPrompt = prompt;
+    let rawOutput = await this.llmClient.complete(prompt, llmCallOptions);
+    let utterance = this.outputParser.extractUtterance(rawOutput);
+
+    // T43（Issue #1）: 他キャラのfirstPerson/toneSampleの語尾パターンが混入していないかを
+    // 検知し、違反していれば口調の修正指示を追加したプロンプトで1回だけ再生成する。
+    // `layer:llm`イベント（F8.3）は最終的に採用したプロンプト/出力のみを1回発行する
+    // （再生成前の一時的な出力まで残すとLogBrowser/exportConversationReportの
+    // `findLayerPayload`が先勝ちで拾ってしまい、表示されるutteranceと矛盾するため。
+    // 自己レビューで発見、実装者判断）。
+    const toneCheck = this.outputParser.checkToneConsistency(
+      utterance,
+      this.otherCharacterToneProfiles(speakerId),
+    );
+    if (!toneCheck.ok) {
+      finalPrompt = this.buildToneRetryPrompt(prompt, this.getCharacterDef(speakerId), toneCheck);
+      rawOutput = await this.llmClient.complete(finalPrompt, llmCallOptions);
+      utterance = this.outputParser.extractUtterance(rawOutput);
+      // 再生成後も違反が残る場合はプロトタイプとして1回までのリトライに留め、そのまま採用する
+      // （plan-cの「1回だけ再生成する」仕様に従う。実装者判断、implementation-rules.md 9章）。
+    }
+    this.eventBus?.emit('layer:llm', { prompt: finalPrompt, rawOutput });
 
     const result: TurnResult = {
       sessionId: sessionState.sessionId,
@@ -275,6 +307,65 @@ export class ConversationManager {
     return topic;
   }
 
+  // T43で追加。buildPromptと再生成リトライ判定の両方で発話者のCharacterDefRecordが必要なため
+  // 共通化した（存在しない場合は他の箇所と同様に例外を投げる）。
+  private getCharacterDef(characterId: string): CharacterDefRecord {
+    const def = this.characterDefs.get(characterId);
+    if (!def) {
+      throw new Error(`ConversationManager: CharacterDefRecordが見つかりません (${characterId})`);
+    }
+    return def;
+  }
+
+  // T43（Issue #1）: checkToneConsistencyに渡す「話者以外の参加キャラクター」の口調情報一覧。
+  // sessionState.participantIdsではなくthis.characterDefs全体を対象にするのは、口調が
+  // 混入しうる相手は現在のセッション参加者に限らないため（実装者判断）。
+  private otherCharacterToneProfiles(speakerId: string): OtherCharacterToneProfile[] {
+    const speakerFirstPerson = this.characterDefs.get(speakerId)?.firstPerson ?? null;
+    return [...this.characterDefs.entries()]
+      .filter(([characterId]) => characterId !== speakerId)
+      .map(([characterId, def]) => ({
+        characterId,
+        // 話者自身と一人称が同じ他キャラクターについてはfirstPersonチェックの対象から
+        // 除外する。複数キャラが同じ一人称を持つ場合（実際のcharacter_defでは4体中3体が
+        // 「俺」を共有）、除外しないと話者自身の正当な一人称使用まで誤検知してしまう
+        // （自己レビューで発見、実装者判断）。toneSampleの語尾パターンによる検知は
+        // 引き続き行う。
+        firstPerson:
+          def.firstPerson && def.firstPerson !== speakerFirstPerson ? def.firstPerson : null,
+        toneSample: def.toneSample,
+      }));
+  }
+
+  // T43（Issue #1）: 口調逸脱が検知された際に、元のプロンプトへ修正指示を追加した再生成用
+  // プロンプトを構築する。プロンプト文面はハードコードせずutterance/tone_retry.mdに外部化する
+  // （implementation-rules.md 6章）。
+  private buildToneRetryPrompt(
+    baseInstruction: string,
+    speakerDef: CharacterDefRecord,
+    toneCheck: ToneConsistencyCheckResult,
+  ): string {
+    const violatingCharacterNames = [
+      ...new Set(
+        toneCheck.violations.map(
+          (v) => this.characterDefs.get(v.characterId)?.name ?? v.characterId,
+        ),
+      ),
+    ].join('、');
+    const violatingPatterns = [...new Set(toneCheck.violations.map((v) => v.matchedPattern))].join(
+      '、',
+    );
+
+    return this.promptBuilder.build('utterance/tone_retry', {
+      baseInstruction,
+      characterName: speakerDef.name,
+      firstPerson: speakerDef.firstPerson ?? '',
+      toneSample: speakerDef.toneSample ?? '',
+      violatingCharacterNames,
+      violatingPatterns,
+    });
+  }
+
   private buildPrompt(
     sessionState: SessionState,
     speakerId: string,
@@ -285,11 +376,8 @@ export class ConversationManager {
     retrievedMemories: MemoryItem[],
     topic: Topic,
   ): string {
-    const speakerDef = this.characterDefs.get(speakerId);
+    const speakerDef = this.getCharacterDef(speakerId);
     const targetDef = this.characterDefs.get(targetId);
-    if (!speakerDef) {
-      throw new Error(`ConversationManager: CharacterDefRecordが見つかりません (${speakerId})`);
-    }
 
     const recentDialogue = sessionState.recentUtterances
       .slice(-3)

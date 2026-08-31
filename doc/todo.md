@@ -238,6 +238,16 @@
   テスト: `exportConversationReport.ts`はスクリプト単体（レンダリング関数）のため既存の`npm test`（server）の対象外。`e2eConversation.ts`修正後、実際に`--db=<path>`指定でセッションが永続化されること、生成したsqliteファイルから`exportConversationReport.js`でレポートが生成できることを手動実行で確認した。
   **実施内容（対応済み）**: 上記の通り実装・動作確認済み。自動化フロー自体のオーケストレーション（案出しエージェント／実装エージェントのプロンプト）は`doc/agent-prompts/`配下に追加（`packages/`配下ではないため本trailerの対象外）。
 
-## 未着手事項の追加について
+---
+
+- [x] **T43. 口調逸脱検知＋自動リトライ機構の追加（Issue #1対応、plan-c）**
+  2026-08-31、GitHub Issue #1（「キャラクターの口調が間違うことがある。特に、前に発言したキャラクターの発言に引っ張られて口調がずれているように感じる」という報告）への改善案の1つとして、T42の自動化フローで実装した（`doc/agent-prompts/`参照）。`OutputParser`（F7.3）に、生成された発話が話者以外の参加キャラクターの`firstPerson`/`toneSample`の特徴的な語尾パターンを含んでいないかを検知する`checkToneConsistency`を追加した。`ConversationManager`の発話生成ステップでこのチェックに違反した場合、口調逸脱を指摘する補正指示を追加したプロンプト（`packages/engine/prompts/utterance/tone_retry.md`、F7.1a、`class-design.md` 10.1章に追記）で1回だけ再生成するリトライロジックを追加した（既存の`checkConsistency`＝ng_topicsチェックと同様の構造）。プロンプト本体（`utterance/base.md`）自体は変更していない。
+  テスト: `OutputParser.test.ts`に`checkToneConsistency`のユニットテストを追加（他キャラのfirstPerson/toneSample語尾の検知、複数違反の検知、firstPerson/toneSampleがnullの場合の安全性、1文字語尾の誤検知防止）。`ConversationManager.test.ts`に、(1)口調違反時に1回だけ再生成されること、(2)違反がなければ再生成されないこと、(3)再生成しても違反が残る場合は1回で打ち切りその結果を採用すること、(4)再生成が発生したターンでも`layer:llm`イベントは最終的に採用したプロンプト/出力のみで1回だけ発行されること、(5)話者自身と同じ一人称を共有する他キャラクターの一人称を誤検知しないこと、を確認するテストを追加した。
+  **実施内容（対応済み）**: 上記の通り実装。自己レビュー（Sonnet、`/code-review`スキル）で以下を指摘・修正した。
+  - `layer:llm`イベントを再生成前後で2回発行していたため、`LogBrowser`/`exportConversationReport.ts`の`findLayerPayload`（先勝ちの`.find()`）が再生成前の口調違反出力を拾ってしまい、画面表示の`utterance`（再生成後の最終テキスト）と矛盾する不具合があった。最終的に採用したプロンプト/出力のみを1回発行するよう修正した。
+  - `checkToneConsistency`のfirstPersonチェックが単純な部分一致のままだと、実際のcharacter_def（`AI-character-def`）では4体中3体（char_a/char_b/char_d）が一人称「俺」を共有しているため、話者自身の正当な一人称使用まで他キャラの口調違反として毎ターン誤検知してしまう不具合があった。話者自身と同じ一人称を持つ他キャラクターについてはfirstPersonチェックの対象から除外するよう修正した。
+  - 新規テンプレート`utterance/tone_retry.md`を`class-design.md` 10.1章・`architecture.md` 8章のプロンプト一覧に追記した（implementation-rules.md 6章）。
+  - `TurnResult`にリトライ回数フィールドを追加する案も検討したが、`server`側の`TurnRecord`/`turns`テーブルとのフィールド構成一致（`class-design.md`に明記）を崩すため見送り、`layer:llm`イベントのプロンプト内容（補正指示テキストの有無）で再生成の発火を確認できるようにした。
+  **実行環境の制約（未実施）**: 実際のTogether AI（`api.together.xyz`）を用いたE2Eセッション実行（`e2eConversation.ts`）と会話ログレポートのArtifact公開は、本タスクを実施したサンドボックス環境のネットワークegressポリシーにより`api.together.xyz`への接続がプロキシ側で拒否される（403、組織ポリシーによるブロック。プロキシ設定やAPIキーの問題ではないことを`/root/.ccr/README.md`の手順で確認済み）ため実施できなかった。ユニットテストでロジックの正しさ（誤検知修正含む）は検証済み。Together AIへのネットワークアクセスがある環境で`node packages/server/dist/scripts/e2eConversation.js char_a char_b char_c char_d 30 --db=<path>.sqlite`を実行し`exportConversationReport.js`でレポート化することで再現・目視確認できる。
 
 新たに必要なTODOに気づいた場合は、該当フェーズの末尾に追記してから着手する（既存の番号は変更しない。新規は次の番号を採番する）。大きく設計を変える必要が生じた場合は、実装を進める前にユーザーに確認する。

@@ -200,6 +200,7 @@ packages/engine/prompts/
 ├── utterance/
 │   ├── base.md              # 共通の指示文（キャラクター設定・関係性・Dialogue Actを踏まえて一言だけ話す、等）
 │   ├── with_shared_memory.md# 共有記憶を参照させたい場合の追加テンプレート
+│   ├── tone_retry.md        # T43: 他キャラの口調混入を検知した際の再生成用追加テンプレート（Issue #1）
 │   └── ...
 └── dialogueAct/
     └── candidate_selection.md  # F5.5 小型LLMによるAct候補提案用（任意機能）
