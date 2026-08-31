@@ -26,10 +26,19 @@ Issue: {{ISSUE_URL}}
 2. 既存のlint/typecheck/testを通す（`npm run lint && npm run typecheck && npm run test`）。
 3. 改善が効いているか確認するため、実際にセッションを1つ実行する。
    `npm run build --workspace packages/server` の後、
-   `node packages/server/dist/scripts/e2eConversation.js char_a char_b 30 --db=<worktree内の適当なパス>.sqlite`
+   `node packages/server/dist/scripts/e2eConversation.js char_a char_b 20 --db=<worktree内の適当なパス>.sqlite`
    のように`--db=<path>`を必ず指定すること（省略時は`:memory:`扱いになり、
    実行後にデータが消えて手順4のレポート生成ができなくなる）。
-   ターン数やキャラクターの組み合わせは案の内容に応じて変えてよい。
+   ターン数は20を基本とする（キャラクターの組み合わせは案の内容に応じて変えてよい）。
+
+   Together AIは不安定でtimeoutエラーが発生しやすい。そのため生成できたターン数に応じて
+   以下のように扱うこと:
+   - 10ターン以上生成できていれば（たとえ指定した20ターンに届かずエラー終了していても）
+     それを成果物として採用し、手順4に進んでよい。
+   - 10ターン未満で終了した場合は再実行する。最大3回まで試すこと。
+   - 3回試してもすべて10ターン未満だった場合は、その3回の中で最もターン数が多かった
+     セッション（の`--db`ファイルとセッションID）を成果物として採用する
+     （その旨をPR本文に明記すること）。
 4. 実行時にコンソールへ出力される`セッション作成: <sessionId>`のIDを使い、
    手順3と同じ`--db`のsqliteファイルを指定して会話ログレポートを生成する:
    `node packages/server/dist/scripts/exportConversationReport.js <sessionId> <出力先パス> <手順3のdbパス>`
