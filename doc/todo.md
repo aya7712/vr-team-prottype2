@@ -238,6 +238,11 @@
   テスト: `exportConversationReport.ts`はスクリプト単体（レンダリング関数）のため既存の`npm test`（server）の対象外。`e2eConversation.ts`修正後、実際に`--db=<path>`指定でセッションが永続化されること、生成したsqliteファイルから`exportConversationReport.js`でレポートが生成できることを手動実行で確認した。
   **実施内容（対応済み）**: 上記の通り実装・動作確認済み。自動化フロー自体のオーケストレーション（案出しエージェント／実装エージェントのプロンプト）は`doc/agent-prompts/`配下に追加（`packages/`配下ではないため本trailerの対象外）。
 
+- [x] **T43. Issue #5対応（plan-d）: 自キャラの直近自己発話を「自分の声」アンカーとしてプロンプト末尾に再掲する**
+  2026-09-01、Issue #5（旧Issue #1と同一文面、関連PR #2/#3/#4は別方向性で対応中）を受け、Issue自動改善フロー（T42）の実装エージェントの1案（plan-d）として着手。現状の`recentDialogue`は直近3発話を話者に関わらずそのまま並べているだけで、直前に他キャラクターが話していた場合、その発言がプロンプト内で生成対象キャラクターの発話指示に最も近い位置に来てしまい、口調が他キャラに引っ張られる原因になっていた。`SessionState`にキャラクターIDごとの直近自己発話（最新1件、他キャラの発言を挟んでも保持され続ける）を独立して追跡する`lastSelfUtteranceBySpeaker`を追加し、`ConversationManager.buildPrompt`で「直前の会話」セクションとは別に、生成指示の直前（プロンプトの最後）に『（参考）あなた自身の直近の話し方』として自分の最新の発話をそのまま引用する新セクションを追加した。まだそのキャラクターの発話が無い場合（セッション最初の発話）はこのセクション自体を省略する。
+  テスト: `ConversationManager.test.ts`に、1発話目ではselfVoiceAnchorセクションが省略されること、他キャラの発話を挟んでも自分の直近発話が再掲されることを確認するテストを追加した。
+  **実施内容（対応済み）**: `packages/engine/src/conversationManager/types.ts`（`SessionState.lastSelfUtteranceBySpeaker`追加）、`packages/engine/src/conversationManager/ConversationManager.ts`（`runTurn`での更新、`buildPrompt`でのselfVoiceAnchor組み立て）、`packages/engine/prompts/utterance/base.md`（`{{selfVoiceAnchor}}`プレースホルダー追加）、`packages/server/src/services/TurnOrchestrator.ts`（`SessionState`生成箇所への初期値追加）を変更した。`class-design.md` 9章・10.1章を実装に合わせて更新した。
+
 ## 未着手事項の追加について
 
 新たに必要なTODOに気づいた場合は、該当フェーズの末尾に追記してから着手する（既存の番号は変更しない。新規は次の番号を採番する）。大きく設計を変える必要が生じた場合は、実装を進める前にユーザーに確認する。

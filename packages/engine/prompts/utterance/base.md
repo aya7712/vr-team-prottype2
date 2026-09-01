@@ -31,4 +31,6 @@
 
 {{recentDialogue}}
 
+{{selfVoiceAnchor}}
+
 上記を踏まえ、{{characterName}}として次に発する一言だけを出力してください。

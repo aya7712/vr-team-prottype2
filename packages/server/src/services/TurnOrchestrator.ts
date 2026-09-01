@@ -123,6 +123,7 @@ export class TurnOrchestrator {
         conversationStateManager: new ConversationStateManager(new RhythmTracker()),
         turnNo: 0,
         recentUtterances: [],
+        lastSelfUtteranceBySpeaker: {},
         initialTopic: session.initialTopic,
       };
 
