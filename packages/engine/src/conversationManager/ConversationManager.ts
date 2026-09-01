@@ -4,6 +4,7 @@ import type { RelationshipManager } from '../relationship/RelationshipManager.js
 import { RelationshipUpdater } from '../relationship/RelationshipUpdater.js';
 import type { MemoryRetriever } from '../memory/MemoryRetriever.js';
 import type { PromptBuilder, LlmClient, OutputParser } from '../llm/index.js';
+import { ToneReviewer } from '../llm/index.js';
 import type { TopicClassifier } from '../topic/TopicClassifier.js';
 import type { TopicParameterUpdater } from '../topic/TopicParameterUpdater.js';
 import type { TopicContinuationScorer } from '../topic/TopicContinuationScorer.js';
@@ -44,6 +45,8 @@ const ACT_TO_TOPIC_EVENT: Partial<
  * - `characterDefs: Map<string, CharacterDefRecord>`（T04出力。CharacterState（F1）は
  *   キャラクター名等の静的情報を持たないため、プロンプト構築に必要な
  *   name/personality/toneSample/firstPerson/ngTopicsの参照用に追加した）
+ * - `toneReviewer: ToneReviewer`（Issue #5対応、plan-e、T43。生成直後の発話が話者本人の
+ *   口調から逸脱していないかを追加のLLM呼び出し1回で審査・書き換えする）
  */
 export class ConversationManager {
   constructor(
@@ -67,6 +70,12 @@ export class ConversationManager {
     // 全6ペアのtrust/intimacyが変化しないことから発覚したため、ここで配線する。
     private readonly relationshipUpdater: RelationshipUpdater = new RelationshipUpdater(),
     private readonly eventBus?: EngineEventBus,
+    // 末尾に追加した理由: `eventBus`が既存呼び出し元（TurnOrchestrator等）で常に最後の
+    // 実引数として明示的に渡されており（implementation-rules.md 9章のコンストラクタ一覧に
+    // 準拠する既存コード）、途中に挿入すると位置引数がずれてeventBusに誤った値が渡って
+    // しまう。`eventBus`の後にdefault付きで追加することで、既存呼び出し元は変更不要のまま
+    // （省略時はデフォルトが使われる）新規依存を追加できる（実装者判断）。
+    private readonly toneReviewer: ToneReviewer = new ToneReviewer(promptBuilder, llmClient),
   ) {}
 
   async runTurn(sessionState: SessionState): Promise<TurnResult> {
@@ -142,9 +151,13 @@ export class ConversationManager {
     });
     this.eventBus?.emit('layer:memory', { retrieved: retrievedMemories });
 
+    const speakerDef = this.characterDefs.get(speakerId);
+    if (!speakerDef) {
+      throw new Error(`ConversationManager: CharacterDefRecordが見つかりません (${speakerId})`);
+    }
     const prompt = this.buildPrompt(
       sessionState,
-      speakerId,
+      speakerDef,
       targetId,
       act,
       characterState,
@@ -152,13 +165,61 @@ export class ConversationManager {
       retrievedMemories,
       topic,
     );
-    const speakerLlmConfig = this.characterDefs.get(speakerId)?.llm ?? null;
+    const speakerLlmConfig = speakerDef.llm ?? null;
     const rawOutput = await this.llmClient.complete(prompt, {
       model: speakerLlmConfig?.model,
       temperature: speakerLlmConfig?.temperature,
     });
-    const utterance = this.outputParser.extractUtterance(rawOutput);
-    this.eventBus?.emit('layer:llm', { prompt, rawOutput });
+    const generatedUtterance = this.outputParser.extractUtterance(rawOutput);
+
+    // Issue #5対応（plan-e、T43）: 直前に発言していた他キャラクター（今回のsessionState更新前の
+    // previousSpeakerId）の口調プロフィールと共に発話を審査する。previousSpeakerIdが無い
+    // （会話開始直後の1発話目）場合はnullを渡し、ToneReviewer側で審査対象なしとして扱う。
+    // 上のspeakerDef（145行目付近）と異なり、previousSpeakerIdがcharacterDefsに
+    // 見つからない場合もthrowしない（実装者判断、code-reviewでの指摘への対応）。
+    // speakerDefはプロンプト構築に必須（欠けるとターン全体が成立しない）だが、
+    // previousSpeakerDefは「他キャラの口調プロフィールを審査materialに加える」という
+    // 補助的な用途のみで、欠けていてもToneReviewer.review()がpreviousSpeaker: null
+    // （＝会話開始直後と同じ扱い）として安全にフォールバックできる。ToneReviewer自体が
+    // 「審査品質のためにターン全体を失敗させない」設計方針（このファイル下部のtoneReview
+    // 呼び出し、およびToneReviewer.review()内のフォールバック参照）のため、ここでも
+    // 同じ方針を踏襲し、通常発生しない状況（前ターンの話者がcharacterDefsに存在しない）
+    // で例外を投げてターンを失敗させることは避けた。
+    const previousSpeakerDef = sessionState.previousSpeakerId
+      ? this.characterDefs.get(sessionState.previousSpeakerId)
+      : undefined;
+    const toneReview = await this.toneReviewer.review({
+      utterance: generatedUtterance,
+      // 発話生成本体と同じモデルを審査にも使う（ToneReviewer.ToneReviewInput.model参照。
+      // 未指定にするとTogetherClientの既定モデルにフォールバックし、そのモデルが
+      // 利用不可の場合は審査が常に失敗する不具合をE2E確認で発見したための対応）。
+      model: speakerLlmConfig?.model,
+      speaker: {
+        name: speakerDef.name,
+        personality: speakerDef.personality,
+        toneSample: speakerDef.toneSample ?? '',
+        firstPerson: speakerDef.firstPerson ?? '',
+      },
+      previousSpeaker: previousSpeakerDef
+        ? {
+            name: previousSpeakerDef.name,
+            personality: previousSpeakerDef.personality,
+            toneSample: previousSpeakerDef.toneSample ?? '',
+            firstPerson: previousSpeakerDef.firstPerson ?? '',
+          }
+        : null,
+    });
+    const utterance = toneReview.utterance;
+    this.eventBus?.emit('layer:llm', {
+      prompt,
+      rawOutput,
+      toneReview: {
+        prompt: toneReview.prompt,
+        rawOutput: toneReview.rawOutput,
+        applied: toneReview.applied,
+        error: toneReview.error,
+      },
+    });
 
     const result: TurnResult = {
       sessionId: sessionState.sessionId,
@@ -277,7 +338,7 @@ export class ConversationManager {
 
   private buildPrompt(
     sessionState: SessionState,
-    speakerId: string,
+    speakerDef: CharacterDefRecord,
     targetId: string,
     act: DialogueAct,
     characterState: CharacterState,
@@ -285,11 +346,7 @@ export class ConversationManager {
     retrievedMemories: MemoryItem[],
     topic: Topic,
   ): string {
-    const speakerDef = this.characterDefs.get(speakerId);
     const targetDef = this.characterDefs.get(targetId);
-    if (!speakerDef) {
-      throw new Error(`ConversationManager: CharacterDefRecordが見つかりません (${speakerId})`);
-    }
 
     const recentDialogue = sessionState.recentUtterances
       .slice(-3)
