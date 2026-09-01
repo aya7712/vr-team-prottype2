@@ -84,6 +84,7 @@ function makeConversationManager(
   llmResponses: string[],
   eventBus?: EngineEventBus,
   characterLlmConfigs?: Partial<Record<'char_a' | 'char_b', CharacterDefRecord['llm']>>,
+  templateContent = '{{characterName}}が{{topicLabel}}について{{dialogueAct}}する。',
 ): { manager: ConversationManager; llmClient: LlmClient; relationshipGraph: RelationshipGraph } {
   const relationshipGraph = new RelationshipGraph();
   relationshipGraph.addEdge({
@@ -111,9 +112,7 @@ function makeConversationManager(
   const memoryRepo = new InMemoryMemoryRepository([]);
   const memoryRetriever = new MemoryRetriever(memoryRepo);
 
-  const templateLoader = makeFakeTemplateLoader(
-    '{{characterName}}が{{topicLabel}}について{{dialogueAct}}する。',
-  );
+  const templateLoader = makeFakeTemplateLoader(templateContent);
   const promptBuilder = new PromptBuilder(templateLoader);
 
   let callIndex = 0;
@@ -164,6 +163,7 @@ function makeSessionState(): SessionState {
     conversationStateManager: new ConversationStateManager(new RhythmTracker()),
     turnNo: 0,
     recentUtterances: [],
+    lastSelfUtteranceBySpeaker: {},
     initialTopic: '最初の話題',
   };
 }
@@ -329,6 +329,48 @@ describe('ConversationManager', () => {
       rawOutput: '「やったー！」',
     });
     expect(payloadsByEvent['turn:complete'][0]).toEqual(result);
+  });
+
+  // T43（Issue #5対応）: 直前に別キャラクターが話していても、自分自身の直近発話が
+  // 「口調の参照点」としてプロンプトに再掲されることを確認する。
+  it('T43: 自分の発話がまだ無い1発話目ではselfVoiceAnchorセクションが省略される', async () => {
+    const { manager, llmClient } = makeConversationManager(
+      ['「一言目」'],
+      undefined,
+      undefined,
+      '{{recentDialogue}}\n---\n{{selfVoiceAnchor}}\n---',
+    );
+    const sessionState = makeSessionState();
+
+    await manager.runTurn(sessionState);
+
+    const [prompt] = (llmClient.complete as Mock).mock.calls[0] as [string];
+    expect(prompt).not.toContain('（参考）あなた自身の直近の話し方');
+    expect(prompt).toBe('(会話開始)\n---\n\n---');
+  });
+
+  it('T43: 他キャラの発話を挟んでも自分の直近発話がselfVoiceAnchorとして再掲される', async () => {
+    const { manager, llmClient } = makeConversationManager(
+      ['「一言目」', '「二言目」', '「三言目」'],
+      undefined,
+      undefined,
+      '{{recentDialogue}}\n---\n{{selfVoiceAnchor}}\n---',
+    );
+    const sessionState = makeSessionState();
+
+    const first = await manager.runTurn(sessionState); // char_a: 「一言目」
+    await manager.runTurn(sessionState); // char_b: 「二言目」
+    const third = await manager.runTurn(sessionState); // char_a: 「三言目」
+
+    expect(first.speakerId).toBe('char_a');
+    expect(third.speakerId).toBe('char_a');
+
+    const [thirdPrompt] = (llmClient.complete as Mock).mock.calls[2] as [string];
+    expect(thirdPrompt).toContain('（参考）あなた自身の直近の話し方');
+    // char_aの直近自己発話（1ターン目の「一言目」）が引用されていること
+    expect(thirdPrompt).toContain('宇良: 一言目');
+    expect(sessionState.lastSelfUtteranceBySpeaker.char_a?.utterance).toBe('三言目');
+    expect(sessionState.lastSelfUtteranceBySpeaker.char_b?.utterance).toBe('二言目');
   });
 
   it('runTurnは発話者のCharacterDefRecord.llmに設定されたmodel/temperatureをllmClientへ渡す', async () => {

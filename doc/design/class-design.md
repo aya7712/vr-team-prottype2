@@ -453,6 +453,12 @@ export interface SessionState {
   recentUtterances: { speakerId: string; utterance: string; turnNo: number }[];
   initialTopic: string;  // T35で追加。1発話目のTopic分類はこの文字列を起点に行う
                           // （「(会話開始)」プレースホルダーへの依存を廃止）
+  // T43で追加（Issue #5: 口調が直前の他キャラ発話に引っ張られる問題への対策）。
+  // キャラクターIDごとの直近自己発話（最新1件）。recentUtterancesは話者を問わず
+  // 直近5件を保持するだけなので、他キャラの発話を複数回挟むとウィンドウから
+  // 外れてしまう。buildPromptが生成対象キャラクター自身の直近発話を
+  // 「口調の参照点」としてプロンプト末尾に再掲するために独立して保持する。
+  lastSelfUtteranceBySpeaker: Record<string, { speakerId: string; utterance: string; turnNo: number }>;
 }
 ```
 
@@ -494,7 +500,7 @@ export class PromptBuilder {
 
 | ファイル | 用途 | プレースホルダー |
 |---|---|---|
-| `utterance/base.md` | セリフ生成の基本テンプレート（F7.1） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{emotion}}`, `{{speakingStyle}}`, `{{targetName}}`, `{{addressTerm}}`, `{{dialogueAct}}`, `{{retrievedMemory}}`, `{{recentDialogue}}` |
+| `utterance/base.md` | セリフ生成の基本テンプレート（F7.1） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{emotion}}`, `{{speakingStyle}}`, `{{targetName}}`, `{{addressTerm}}`, `{{dialogueAct}}`, `{{retrievedMemory}}`, `{{recentDialogue}}`, `{{selfVoiceAnchor}}`（T43で追加。生成対象キャラクター自身の直近発話。無ければ空文字列でセクションごと省略） |
 | `utterance/with_shared_memory.md` | 共有記憶を参照させたい場合に`base.md`の出力へ追加で組み合わせるテンプレート | `{{baseInstruction}}`, `{{targetName}}`, `{{characterName}}`, `{{sharedMemory}}` |
 
 T10時点では`utterance/`配下のみ作成した。`dialogueAct/candidate_selection.md`（F5.5、小型LLMによるAct候補提案の任意機能）はF5.5自体が未実装のため作成していない。

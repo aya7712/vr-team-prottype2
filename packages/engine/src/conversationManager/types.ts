@@ -31,4 +31,10 @@ export interface SessionState {
   // 分類対象として使い、「(会話開始)」プレースホルダーの代わりにこの文字列から
   // TopicTreeを開始する。
   initialTopic: string;
+  // T43（Issue #5対応）: キャラクターIDごとの直近自己発話（最新1件）。recentUtterancesは
+  // 話者に関わらず直近5件をそのまま保持するため、3〜4体構成で他キャラの発話を複数回
+  // 挟むと、あるキャラクター自身の最後の発話がウィンドウから外れうる。buildPromptで
+  // 「自分の声」アンカーとして生成対象キャラクター自身の直近発話を文脈の最後尾に
+  // 再掲するため、他キャラの発話を挟んでも消えない形で別途保持する。
+  lastSelfUtteranceBySpeaker: Record<string, RecentUtterance>;
 }

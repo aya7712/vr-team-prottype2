@@ -179,6 +179,11 @@ export class ConversationManager {
       ...sessionState.recentUtterances,
       { speakerId, utterance, turnNo: nextTurnNo },
     ].slice(-5);
+    // T43（Issue #5対応）: 他キャラの発話を何回挟んでも消えない自己発話アンカーを更新する。
+    sessionState.lastSelfUtteranceBySpeaker = {
+      ...sessionState.lastSelfUtteranceBySpeaker,
+      [speakerId]: { speakerId, utterance, turnNo: nextTurnNo },
+    };
     sessionState.conversationStateManager.updateAfterTurn(act, topicScore);
     this.relationshipUpdater.applyTurnResult(this.relationshipManager.getGraph(), result);
 
@@ -296,6 +301,22 @@ export class ConversationManager {
       .map((u) => `${this.characterDefs.get(u.speakerId)?.name ?? u.speakerId}: ${u.utterance}`)
       .join('\n');
 
+    // T43（Issue #5対応）: 他キャラの発話に口調が引っ張られる問題への対策。「直前の会話」
+    // セクション（他キャラ発話を含みうる）よりも生成指示に近い位置に、自分自身の直近発話を
+    // 「口調の参照点」として再掲する。まだ自分の発話が無い（セッション最初の発話）場合は
+    // セクションごと省略する（PromptBuilderはプレースホルダーの条件分岐を持たないため、
+    // 空文字列を渡すことでbase.md側のセクション自体を空にする）。
+    const lastSelfUtterance = sessionState.lastSelfUtteranceBySpeaker[speakerId];
+    const selfVoiceAnchor = lastSelfUtterance
+      ? [
+          '## （参考）あなた自身の直近の話し方',
+          '',
+          '他のキャラクターの口調に引きずられず、直前に自分自身が話した以下の発話の口調（語尾・一人称・敬語レベル）を優先してください。',
+          '',
+          `${speakerDef.name}: ${lastSelfUtterance.utterance}`,
+        ].join('\n')
+      : '';
+
     return this.promptBuilder.build('utterance/base', {
       characterName: speakerDef.name,
       personality: speakerDef.personality,
@@ -309,6 +330,7 @@ export class ConversationManager {
       topicLabel: topic.label,
       retrievedMemory: retrievedMemories.map((m) => m.summary).join('\n') || '(なし)',
       recentDialogue: recentDialogue || '(会話開始)',
+      selfVoiceAnchor,
     });
   }
 }
