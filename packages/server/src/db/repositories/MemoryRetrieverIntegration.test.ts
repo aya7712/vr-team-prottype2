@@ -59,7 +59,7 @@ describe('MemoryRetriever × MemoryRepositoryImpl（実character_defデータ）
       if (memory.owner !== 'char_a') continue;
       const vector =
         memory.id === 'mem_a_0001' ? new Float32Array([1, 0]) : new Float32Array([0, 1]);
-      memoryRepo.saveEmbedding(memory.id, 'preset', 'test-model', vector);
+      await memoryRepo.saveEmbedding(memory.id, 'preset', 'test-model', vector);
     }
 
     const embeddingService = {

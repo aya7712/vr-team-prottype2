@@ -46,6 +46,9 @@ export interface DialoguePlannerLayerPayload {
 
 export interface MemoryLayerPayload {
   retrieved: MemoryItem[];
+  // T43（Issue #5 plan-f）: 話者自身の過去発話から想起した「口調の実例」。
+  // `retrieved`（他キャラとの共有記憶等、shareableフィルタ済み）とは別枠で保持する。
+  selfVoiceExemplars: MemoryItem[];
 }
 
 export interface LlmLayerPayload {

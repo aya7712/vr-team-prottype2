@@ -42,6 +42,13 @@ export class EmbeddingClient {
     private readonly model: string = DEFAULT_EMBEDDING_MODEL,
   ) {}
 
+  // T43: memory_embeddings.model（記録用の列、data-design.md 5.3）へ書き込む値を
+  // 呼び出し元（MemoryRetriever）が知るためのgetter。呼び出し元でモデル名を
+  // 重複管理・ハードコードせずに済むようにする。
+  getModel(): string {
+    return this.model;
+  }
+
   async embed(text: string): Promise<Float32Array> {
     let lastError: unknown;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {

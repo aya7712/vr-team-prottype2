@@ -27,7 +27,7 @@ export class CacheSyncService {
 
     for (const memory of memoryPresets) {
       const vector = await this.embeddingService.embed(memory.summary);
-      this.memoryRepository.saveEmbedding(memory.id, 'preset', this.embeddingModel, vector);
+      await this.memoryRepository.saveEmbedding(memory.id, 'preset', this.embeddingModel, vector);
     }
   }
 }

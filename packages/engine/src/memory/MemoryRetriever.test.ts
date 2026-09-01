@@ -19,6 +19,12 @@ function withEmbeddings(
       repo.recordRecall(sessionId, turnNo, memoryId, source),
     getRecentRecalls: (sessionId, withinTurns) => repo.getRecentRecalls(sessionId, withinTurns),
     getEmbedding: async (memoryId) => embeddings[memoryId] ?? null,
+    saveSessionMemory: (sessionId, originTurnNo, item) =>
+      repo.saveSessionMemory(sessionId, originTurnNo, item),
+    saveEmbedding: (memoryId, source, model, vector) =>
+      repo.saveEmbedding(memoryId, source, model, vector),
+    getSelfVoiceCandidates: (sessionId, speakerId) =>
+      repo.getSelfVoiceCandidates(sessionId, speakerId),
   };
 }
 
@@ -168,5 +174,156 @@ describe('MemoryRetriever', () => {
       makeQuery({ targetIds: [], topicKeywords: ['ボルダリング'] }),
     );
     expect(results.map((m) => m.id)).toEqual(['mem_1']);
+  });
+
+  // T43（Issue #5「口調が前の話者に引っ張られる」対応, plan-f）
+  describe('recordSelfUtterance / retrieveSelfVoiceExemplars', () => {
+    it('recordSelfUtteranceは話者自身のshareable: falseな自己記憶としてrepoへ保存する', async () => {
+      const repo = new InMemoryMemoryRepository([]);
+      const retriever = new MemoryRetriever(repo);
+
+      await retriever.recordSelfUtterance({
+        sessionId: 'session_1',
+        turnNo: 3,
+        speakerId: 'char_a',
+        utterance: 'やったね、そういうことか',
+        topicLabel: '休日の話',
+        emotion: 'happy',
+      });
+
+      const [saved] = await repo.getAllCandidates({ ownerId: 'char_a' });
+      expect(saved).toMatchObject({
+        source: 'session',
+        owner: 'char_a',
+        participants: ['char_a'],
+        summary: 'やったね、そういうことか',
+        shareable: false,
+      });
+    });
+
+    it('retrieveSelfVoiceExemplarsは話者自身の過去発話のみを返す（他者由来の記憶は含めない）', async () => {
+      const repo = new InMemoryMemoryRepository([
+        makeMemory({
+          id: 'mem_preset',
+          source: 'preset',
+          owner: 'char_a',
+          participants: ['char_a'],
+          shareable: true,
+        }),
+      ]);
+      const retriever = new MemoryRetriever(repo);
+
+      await retriever.recordSelfUtterance({
+        sessionId: 'session_1',
+        turnNo: 1,
+        speakerId: 'char_a',
+        utterance: '自分の過去の発話',
+        topicLabel: '話題A',
+      });
+      await retriever.recordSelfUtterance({
+        sessionId: 'session_1',
+        turnNo: 2,
+        speakerId: 'char_b',
+        utterance: '別のキャラの発話',
+        topicLabel: '話題A',
+      });
+
+      const results = await retriever.retrieveSelfVoiceExemplars({
+        sessionId: 'session_1',
+        turnNo: 3,
+        speakerId: 'char_a',
+        topicKeywords: [],
+      });
+
+      expect(results.map((m) => m.id)).toEqual(['mem_session_session_1_1']);
+    });
+
+    it('retrieveSelfVoiceExemplarsは別セッションの自己発話を混入させない（自己レビューで発見した不具合の回帰防止）', async () => {
+      const repo = new InMemoryMemoryRepository([]);
+      const retriever = new MemoryRetriever(repo);
+
+      await retriever.recordSelfUtterance({
+        sessionId: 'session_old',
+        turnNo: 1,
+        speakerId: 'char_a',
+        utterance: '前回のセッションでの発話',
+        topicLabel: '話題A',
+      });
+      await retriever.recordSelfUtterance({
+        sessionId: 'session_new',
+        turnNo: 1,
+        speakerId: 'char_a',
+        utterance: '今回のセッションでの発話',
+        topicLabel: '話題A',
+      });
+
+      const results = await retriever.retrieveSelfVoiceExemplars({
+        sessionId: 'session_new',
+        turnNo: 2,
+        speakerId: 'char_a',
+        topicKeywords: [],
+      });
+
+      expect(results.map((m) => m.summary)).toEqual(['今回のセッションでの発話']);
+    });
+
+    it('retrieveSelfVoiceExemplarsはshareable: falseでも除外しない（相手がいる会話でも自分の口調参考として使える）', async () => {
+      const repo = new InMemoryMemoryRepository([]);
+      const retriever = new MemoryRetriever(repo);
+      await retriever.recordSelfUtterance({
+        sessionId: 'session_1',
+        turnNo: 1,
+        speakerId: 'char_a',
+        utterance: 'これがわたしの話し方だよ',
+        topicLabel: '話題A',
+      });
+
+      const results = await retriever.retrieveSelfVoiceExemplars({
+        sessionId: 'session_1',
+        turnNo: 2,
+        speakerId: 'char_a',
+        topicKeywords: [],
+      });
+
+      expect(results.map((m) => m.id)).toEqual(['mem_session_session_1_1']);
+    });
+
+    it('embeddingServiceが注入されている場合、recordSelfUtteranceはembeddingを保存しretrieveSelfVoiceExemplarsが意味的に近い発話を優先する', async () => {
+      const baseRepo = new InMemoryMemoryRepository([]);
+      const embedByText: Record<string, Float32Array> = {
+        登山の話をした: new Float32Array([1, 0]),
+        無関係な発話: new Float32Array([0, 1]),
+        クエリ: new Float32Array([1, 0]),
+      };
+      const embeddingService = {
+        embed: vi.fn().mockImplementation(async (text: string) => embedByText[text]),
+        getModel: () => 'test-model',
+      } as unknown as EmbeddingService;
+      const retriever = new MemoryRetriever(baseRepo, embeddingService);
+
+      await retriever.recordSelfUtterance({
+        sessionId: 'session_1',
+        turnNo: 1,
+        speakerId: 'char_a',
+        utterance: '無関係な発話',
+        topicLabel: '話題A',
+      });
+      await retriever.recordSelfUtterance({
+        sessionId: 'session_1',
+        turnNo: 2,
+        speakerId: 'char_a',
+        utterance: '登山の話をした',
+        topicLabel: '話題B',
+      });
+
+      const results = await retriever.retrieveSelfVoiceExemplars({
+        sessionId: 'session_1',
+        turnNo: 3,
+        speakerId: 'char_a',
+        topicKeywords: ['クエリ'],
+      });
+
+      expect(results[0]?.summary).toBe('登山の話をした');
+    });
   });
 });

@@ -217,8 +217,16 @@ CREATE TABLE session_memories (
   shareable         INTEGER NOT NULL DEFAULT 1,
   created_at        TEXT NOT NULL
 );
--- D8: 会話ログから生まれた長期記憶。本フェーズでは自動抽出は対象外（features.md 10章）のため、
--- 当面は空でもよいテーブルとして用意しておき、将来の自動抽出機能や手動登録の受け皿とする。
+-- D8: 会話ログから生まれた長期記憶。「LLMによる要約・重要度判定を経てShared Memoryを自動生成する」
+-- という広い意味での自動記憶抽出は本フェーズでは対象外（features.md 10章）のままだが、
+-- T43（Issue #5「口調が前の話者に引っ張られる」対応, plan-f）で、その一歩手前にあたる
+-- 「発話をそのまま自己記憶として記録する」という狭い用途にのみ限定してこのテーブルを使い始めた。
+-- ConversationManagerが発話生成のたびに、話者自身の発話をowner=話者・participants=[話者]・
+-- shareable: falseの自己記憶としてここへ書き込む（要約や重要度判定は行わずsummaryへ発話文を
+-- そのまま格納する）。次ターン以降そのキャラクターが話す際、MemoryRetriever.retrieveSelfVoiceExemplars
+-- が意味検索で近い過去発話を「口調の実例（voice exemplar）」として1〜2件取得しpromptへ渡す
+-- （6.3節末尾に補足）。それ以外の用途（LLMによる要約・Shared Memoryとしての自動生成等）は
+-- 引き続き将来拡張（features.md 10章）のスコープのまま。
 
 CREATE TABLE memory_recall_log (
   session_id      TEXT NOT NULL,
@@ -306,6 +314,8 @@ Memory Retriever
 ### 6.3 Shared Memory / 自己記憶の区別
 - `owner`が単一キャラクターかつ`participants`が1名のみ → 自己記憶（F3.1）
 - `participants`が2名以上 → 共有記憶（F3.2）。会話中の相手が`participants`に含まれるかどうかでMemory Retrieverの検索対象を自己記憶/共有記憶で切り替える（F2.2 Relationship Managerの「共有記憶検索」と連動）。
+- T43（Issue #5 plan-f）: `MemoryRetriever.retrieveSelfVoiceExemplars`（話者自身の過去発話の想起）は、上記の自己記憶の一種だが`retrieve()`とは別の検索経路を持つ。4.3節の「`shareable: false`の記憶は他キャラクターとの会話中の発話材料として使わない」という制約はここでは適用しない。取得した実例は他キャラへ開示される会話内容そのものにはならず、話者自身のプロンプトへ「口調の参考」として渡すだけであり、4.3節が想定する“発話材料としての開示”に該当しないと判断したため。`session_memories`由来の自己発話がプリセット記憶等の想起結果を埋没させないよう、採用件数（`retrieve()`のMAX_RESULTSとは別枠、最大2件）を分けている。
+  - **自己レビューで発見した不具合と対応**: `retrieve()`が使う`getAllCandidates`はセッションを横断して`session_memories`全体を返す（`MemoryFilter`にsessionIdの概念が無いため）。実装当初これを`retrieveSelfVoiceExemplars`にも流用したところ、あるセッションの話者自身の過去発話に、別セッションで生成された（無関係な話題の）自己発話まで混入してしまう不具合があった。`prompts/utterance/base.md`が「このセッション中に実際に話した内容です」と明記している以上これは見過ごせないため、`MemoryRepository`に`getSelfVoiceCandidates(sessionId, speakerId)`（SQL側で`session_id`と`owner`の両方を絞り込む専用クエリ）を追加し、`retrieveSelfVoiceExemplars`はこちらのみを候補源にするよう修正した。
 
 ### 6.4 短期記憶・中期記憶の扱い（参考）
 - 短期記憶（D7, 直近の会話履歴）は検索対象にせず、Topic Analyzer/Dialogue Plannerがオンメモリの会話履歴配列を直接参照する。

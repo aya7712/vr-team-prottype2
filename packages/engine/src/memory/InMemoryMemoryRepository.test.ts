@@ -71,8 +71,28 @@ describe('InMemoryMemoryRepository', () => {
     expect(await repo.getRecentRecalls('session_1', 3)).toEqual(['mem_new']);
   });
 
-  it('getEmbeddingは常にnullを返す（意味検索はT15で追加）', async () => {
+  it('getEmbeddingは未保存のmemoryIdに対してnullを返す', async () => {
     const repo = new InMemoryMemoryRepository([makeMemory()]);
     expect(await repo.getEmbedding('mem_1')).toBeNull();
+  });
+
+  // T43（Issue #5「口調が前の話者に引っ張られる」対応, plan-f）
+  it('saveSessionMemoryで保存した記憶はgetAllCandidatesで取得できる', async () => {
+    const repo = new InMemoryMemoryRepository([]);
+    const item = makeMemory({ id: 'mem_session_1', source: 'session', shareable: false });
+
+    await repo.saveSessionMemory('session_1', 2, item);
+
+    const results = await repo.getAllCandidates({ ownerId: 'char_a' });
+    expect(results.map((m) => m.id)).toEqual(['mem_session_1']);
+  });
+
+  it('saveEmbeddingで保存したベクトルはgetEmbeddingで復元できる', async () => {
+    const repo = new InMemoryMemoryRepository([]);
+    const vector = new Float32Array([0.1, 0.2, 0.3]);
+
+    await repo.saveEmbedding('mem_1', 'session', 'test-model', vector);
+
+    expect(await repo.getEmbedding('mem_1')).toEqual(vector);
   });
 });

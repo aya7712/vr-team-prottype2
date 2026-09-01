@@ -150,7 +150,12 @@ describe('TurnOrchestrator', () => {
 
   it('embeddingServiceを注入するとMemoryRetrieverの意味検索まで配線される（T37）', async () => {
     const embed = vi.fn().mockResolvedValue(new Float32Array([1, 0]));
-    const embeddingService = { embed } as unknown as EmbeddingService;
+    // T43: MemoryRetriever.recordSelfUtterance（話者自身の発話をsession_memoriesへ保存する
+    // 際のembedding保存）がgetModelも呼ぶようになったため、embedと合わせてフェイクに含める。
+    const embeddingService = {
+      embed,
+      getModel: vi.fn().mockReturnValue('test-model'),
+    } as unknown as EmbeddingService;
     const { session, orchestrator, memoryRepository } = setup(
       makeFakeLlmClient(),
       embeddingService,
