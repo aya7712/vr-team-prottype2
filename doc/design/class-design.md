@@ -431,6 +431,7 @@ export class ConversationManager {
     private speakerSelector: SpeakerSelector,     // 2人会話では常に相手を返す実装でよい
     private endConditionEvaluator: EndConditionEvaluator,
     private eventBus?: EngineEventBus,             // F8.3。T13で本実装。テスト時は省略可
+    private toneReviewer?: ToneReviewer,           // Issue #5対応・T43。10.2章参照。既定値あり省略可
   ) {}
 
   // architecture.md 6章のシーケンスをそのまま実装するエントリポイント
@@ -496,8 +497,59 @@ export class PromptBuilder {
 |---|---|---|
 | `utterance/base.md` | セリフ生成の基本テンプレート（F7.1） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{emotion}}`, `{{speakingStyle}}`, `{{targetName}}`, `{{addressTerm}}`, `{{dialogueAct}}`, `{{retrievedMemory}}`, `{{recentDialogue}}` |
 | `utterance/with_shared_memory.md` | 共有記憶を参照させたい場合に`base.md`の出力へ追加で組み合わせるテンプレート | `{{baseInstruction}}`, `{{targetName}}`, `{{characterName}}`, `{{sharedMemory}}` |
+| `utterance/tone_review.md` | 生成済み発話の口調審査・書き換え（F7、Issue #5対応・plan-e、T43。`ToneReviewer`が使用） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{otherCharacterName}}`, `{{otherToneSample}}`, `{{otherFirstPerson}}`, `{{utterance}}` |
 
-T10時点では`utterance/`配下のみ作成した。`dialogueAct/candidate_selection.md`（F5.5、小型LLMによるAct候補提案の任意機能）はF5.5自体が未実装のため作成していない。
+T10時点では`utterance/base.md`/`utterance/with_shared_memory.md`のみ作成した。`dialogueAct/candidate_selection.md`（F5.5、小型LLMによるAct候補提案の任意機能）はF5.5自体が未実装のため作成していない。`utterance/tone_review.md`はT43で追加した。
+
+### 10.2 ToneReviewer（F7、Issue #5対応・plan-e、T43）
+
+```text
+llm/
+└── ToneReviewer.ts   # 生成済み発話の口調審査・書き換え（追加のLLM呼び出し1回）
+```
+
+```typescript
+export interface ToneReviewCharacterProfile {
+  name: string;
+  personality: string;
+  toneSample: string;
+  firstPerson: string;
+}
+
+export interface ToneReviewInput {
+  utterance: string;
+  speaker: ToneReviewCharacterProfile;
+  previousSpeaker: ToneReviewCharacterProfile | null; // 会話開始直後（1発話目）はnull
+}
+
+export interface ToneReviewResult {
+  utterance: string; // 逸脱なし/審査失敗時は元のutteranceと同じ値
+  applied: boolean;  // 実際に書き換わったか（ログ・目視確認用）
+  prompt: string;
+  rawOutput: string | null; // 審査呼び出し失敗時はnull
+  error?: string;
+}
+
+export class ToneReviewer {
+  constructor(
+    private promptBuilder: PromptBuilder,
+    private llmClient: LlmClient,
+    private outputParser?: OutputParser,
+  ) {}
+
+  async review(input: ToneReviewInput): Promise<ToneReviewResult>;
+}
+```
+
+Issue #5（「キャラクターの口調が、前に発言した別キャラクターの口調に引っ張られる」）への対応として、`ConversationManager.runTurn`は`llmClient.complete`で発話を生成した直後、`toneReviewer.review()`を1回呼び出す。話者本人のキャラクタープロフィール（`name`/`personality`/`toneSample`/`firstPerson`）と、直前に発言していた他キャラクター（今回のターンで`sessionState`を更新する前の`previousSpeakerId`）の同プロフィールを渡し、「逸脱していれば口調（語尾・一人称・敬語レベル）だけを話者本人のものに書き直し、そうでなければそのまま出力する」ことをプロンプト（`utterance/tone_review.md`）1回のLLM呼び出しで行わせる（判定用・書き換え用で2回呼ばない）。
+
+既存のplan-c（PR #4、`OutputParser`層での文字列一致ヒューリスティックによる逸脱検知＋同一プロンプトでの再生成）とは異なり、判定自体もLLMに委ねる点、および検知時に「診断結果に基づいて口調だけを書き換える」（同一プロンプトでの盲目的な再生成ではない）点が異なる。
+
+`ToneReviewer`は`ConversationManager`のコンストラクタ末尾（`eventBus`の後）にoptional・default付きで追加した（`toneReviewer: ToneReviewer = new ToneReviewer(promptBuilder, llmClient)`）。既存呼び出し元（`TurnOrchestrator`等）は`eventBus`までを常に明示的な実引数として渡しており、途中に挿入すると位置引数がずれるため、既存呼び出し元を変更せずに済むよう末尾に追加した（実装者判断）。
+
+審査呼び出し（プロンプト構築〜`llmClient.complete`）が失敗した場合は、`implementation-rules.md` 5章の「外部APIエラーは複雑なフォールバックを作らず伝播させる」という原則の**例外**として、審査前のutteranceをそのまま採用するフォールバックを`ToneReviewer.review()`内に実装している。理由は、審査は既に成立した発話に対する追加の品質チェックであり、ここで例外を伝播させると、審査前には成功していたターン全体が失敗扱いになってしまうため。
+
+審査結果（`prompt`/`rawOutput`/`applied`/`error`）は、既存の`layer:llm`イベント（`types/events.ts`の`LlmLayerPayload`）に`toneReview`フィールドとしてoptionalで追加し、新規イベント名は増やしていない（1ターン1回の`layer:llm`発行という既存の順序を変えないため）。
 
 ## 11. F8: ログ・イベント（`packages/engine/src/logging/`）
 

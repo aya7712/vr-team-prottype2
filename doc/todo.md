@@ -238,6 +238,13 @@
   テスト: `exportConversationReport.ts`はスクリプト単体（レンダリング関数）のため既存の`npm test`（server）の対象外。`e2eConversation.ts`修正後、実際に`--db=<path>`指定でセッションが永続化されること、生成したsqliteファイルから`exportConversationReport.js`でレポートが生成できることを手動実行で確認した。
   **実施内容（対応済み）**: 上記の通り実装・動作確認済み。自動化フロー自体のオーケストレーション（案出しエージェント／実装エージェントのプロンプト）は`doc/agent-prompts/`配下に追加（`packages/`配下ではないため本trailerの対象外）。
 
+- [x] **T43. Issue #5「キャラクターの口調が前の話者の口調に引っ張られる」対応（plan-e: LLMベースの口調審査・書き換えパス）**
+  2026-09-01、T42で整備した自動化フロー（`doc/agent-prompts/`）による並行改善案の1つ（plan-e）として着手。旧Issue #1と同一内容のIssue #5に対し、`llm/`層に`ToneReviewer`を新設した。`ConversationManager.runTurn`が発話生成（`llmClient.complete` + `OutputParser.extractUtterance`）直後、話者本人のキャラクタープロフィール（name/personality/toneSample/firstPerson）と直前に発言していた他キャラクターの同プロフィールを`ToneReviewer.review()`に渡し、専用プロンプト（`prompts/utterance/tone_review.md`、新規）で「話者本人の口調から逸脱していれば口調（語尾・一人称・敬語レベル）だけを書き直し、そうでなければそのまま出力する」判定と書き換えを1回のLLM呼び出しで同時に行わせる。plan-c（PR #4、文字列一致ヒューリスティックでの逸脱検知＋同一プロンプトでの盲目的な再生成）とは検知手段・対処方法の両方が異なる。
+  審査呼び出しが失敗した場合は審査前のutteranceにフォールバックする（`implementation-rules.md` 5章の「外部APIエラーは伝播させる」原則の例外。理由は`class-design.md` 10.2章参照）。審査結果は新規イベント名を増やさず、既存`layer:llm`イベント（`LlmLayerPayload`）に`toneReview`フィールドとしてoptional追加し、`exportConversationReport.ts`のレポートでも目視確認できるようにした。
+  `ConversationManager`のコンストラクタは、既存呼び出し元（`TurnOrchestrator`等）の位置引数がずれないよう`toneReviewer`を末尾（`eventBus`の後）にoptional・default付きで追加し、`TurnOrchestrator.ts`側の変更は不要にした。
+  テスト: `ToneReviewer.test.ts`で「逸脱ありの場合に書き換え結果を返す」「逸脱なしの場合は元の発話をそのまま返す」「LLM呼び出し失敗時は元の発話にフォールバックする」等を確認。`ConversationManager.test.ts`に`ToneReviewer`の配線（書き換え結果の採用、`layer:llm`イベントへの反映、1発話目/2発話目以降での`previousSpeaker`の渡し方、既定`ToneReviewer`使用時に例外を投げないこと）を確認するテストを追加。
+  **実施内容（対応済み）**: 上記の通り実装。`class-design.md` 10章にプロンプトテンプレート一覧の追記と10.2章（ToneReviewer）を新設、`types/events.ts`の`LlmLayerPayload`を拡張。E2E確認は`packages/server/src/scripts/e2eConversation.ts`（char_a〜char_d、20ターン）で実施し、結果は対応するPRのArtifact（会話ログレポート）を参照。
+
 ## 未着手事項の追加について
 
 新たに必要なTODOに気づいた場合は、該当フェーズの末尾に追記してから着手する（既存の番号は変更しない。新規は次の番号を採番する）。大きく設計を変える必要が生じた場合は、実装を進める前にユーザーに確認する。

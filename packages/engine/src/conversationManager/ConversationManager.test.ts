@@ -29,6 +29,7 @@ import { InMemoryMemoryRepository } from '../memory/InMemoryMemoryRepository.js'
 import { MemoryRetriever } from '../memory/MemoryRetriever.js';
 import { PromptBuilder } from '../llm/PromptBuilder.js';
 import { OutputParser } from '../llm/OutputParser.js';
+import type { ToneReviewer } from '../llm/ToneReviewer.js';
 import type { PromptTemplateLoader } from '../llm/PromptTemplateLoader.js';
 import type { LlmClient } from '../llm/LlmClient.js';
 import type { CharacterDefRecord } from '../data/types.js';
@@ -84,6 +85,7 @@ function makeConversationManager(
   llmResponses: string[],
   eventBus?: EngineEventBus,
   characterLlmConfigs?: Partial<Record<'char_a' | 'char_b', CharacterDefRecord['llm']>>,
+  toneReviewer?: ToneReviewer,
 ): { manager: ConversationManager; llmClient: LlmClient; relationshipGraph: RelationshipGraph } {
   const relationshipGraph = new RelationshipGraph();
   relationshipGraph.addEdge({
@@ -152,6 +154,7 @@ function makeConversationManager(
     new TopicBranchMerger(),
     new RelationshipUpdater(),
     eventBus,
+    toneReviewer,
   );
   return { manager, llmClient, relationshipGraph };
 }
@@ -354,6 +357,165 @@ describe('ConversationManager', () => {
     expect(llmClient.complete).toHaveBeenNthCalledWith(2, expect.any(String), {
       model: 'model-b',
       temperature: 0.9,
+    });
+  });
+
+  // Issue #5対応（plan-e、T43）: ToneReviewerによる口調審査・書き換えのConversationManagerへの
+  // 配線を確認する。ToneReviewer自体の判定・フォールバックロジックはToneReviewer.test.tsで
+  // 個別に検証済みのため、ここではConversationManagerがToneReviewerの結果を正しく
+  // 採用・伝播しているかのみを確認する。
+  describe('ToneReviewer（口調審査）の配線', () => {
+    it('ToneReviewerが書き換えを返した場合、TurnResult.utteranceに書き換え後の発話が反映される', async () => {
+      const toneReviewer = {
+        review: vi.fn().mockResolvedValue({
+          utterance: '書き換え後の発話だよ！',
+          applied: true,
+          prompt: 'tone-review-prompt',
+          rawOutput: '書き換え後の発話だよ！',
+        }),
+      } as unknown as ToneReviewer;
+      const { manager } = makeConversationManager(
+        ['「元の発話です」'],
+        undefined,
+        undefined,
+        toneReviewer,
+      );
+      const sessionState = makeSessionState();
+
+      const result = await manager.runTurn(sessionState);
+
+      expect(result.utterance).toBe('書き換え後の発話だよ！');
+      expect(sessionState.recentUtterances[0].utterance).toBe('書き換え後の発話だよ！');
+    });
+
+    it('ToneReviewerが逸脱なしと判定した場合、元の発話がそのまま採用される', async () => {
+      const toneReviewer = {
+        review: vi.fn().mockResolvedValue({
+          utterance: '元の発話です',
+          applied: false,
+          prompt: 'tone-review-prompt',
+          rawOutput: '元の発話です',
+        }),
+      } as unknown as ToneReviewer;
+      const { manager } = makeConversationManager(
+        ['「元の発話です」'],
+        undefined,
+        undefined,
+        toneReviewer,
+      );
+      const sessionState = makeSessionState();
+
+      const result = await manager.runTurn(sessionState);
+
+      expect(result.utterance).toBe('元の発話です');
+    });
+
+    it('layer:llmイベントのpayloadにtoneReviewの審査結果が含まれる', async () => {
+      const eventBus = new EngineEventBus();
+      const toneReviewer = {
+        review: vi.fn().mockResolvedValue({
+          utterance: '書き換え後',
+          applied: true,
+          prompt: 'tone-review-prompt',
+          rawOutput: 'raw-review-output',
+        }),
+      } as unknown as ToneReviewer;
+      const { manager } = makeConversationManager(
+        ['「元の発話」'],
+        eventBus,
+        undefined,
+        toneReviewer,
+      );
+      const sessionState = makeSessionState();
+
+      let llmPayload: unknown;
+      eventBus.on('layer:llm', (payload) => {
+        llmPayload = payload;
+      });
+      await manager.runTurn(sessionState);
+
+      expect(llmPayload).toMatchObject({
+        rawOutput: '「元の発話」',
+        toneReview: {
+          prompt: 'tone-review-prompt',
+          rawOutput: 'raw-review-output',
+          applied: true,
+        },
+      });
+    });
+
+    it('1発話目はpreviousSpeakerにnullを渡し、2発話目以降は直前の話者のプロフィールを渡す', async () => {
+      const toneReviewer = {
+        review: vi.fn().mockImplementation(
+          async (input: { utterance: string }) =>
+            ({
+              utterance: input.utterance,
+              applied: false,
+              prompt: 'p',
+              rawOutput: input.utterance,
+            }) as const,
+        ),
+      } as unknown as ToneReviewer;
+      const { manager } = makeConversationManager(
+        ['「一言目」', '「二言目」'],
+        undefined,
+        undefined,
+        toneReviewer,
+      );
+      const sessionState = makeSessionState();
+
+      await manager.runTurn(sessionState);
+      await manager.runTurn(sessionState);
+
+      const calls = (toneReviewer.review as Mock).mock.calls as [{ previousSpeaker: unknown }][];
+      expect(calls[0][0].previousSpeaker).toBeNull();
+      expect(calls[1][0].previousSpeaker).toMatchObject({ name: expect.any(String) });
+    });
+
+    // T43のE2E確認で発見した回帰防止テスト: ToneReviewerにmodelを渡さないと、
+    // TogetherClient側の既定モデル（Together AI側でserverless提供終了済み）に
+    // フォールバックし、審査呼び出しが常に失敗する不具合があった。話者のCharacterDefRecord.llm
+    // に設定されたmodelが、発話生成本体だけでなくToneReviewer.review()にも渡ることを確認する。
+    it('ToneReviewerに、話者のCharacterDefRecord.llmに設定されたmodelが渡される', async () => {
+      const toneReviewer = {
+        review: vi.fn().mockImplementation(
+          async (input: { utterance: string }) =>
+            ({
+              utterance: input.utterance,
+              applied: false,
+              prompt: 'p',
+              rawOutput: input.utterance,
+            }) as const,
+        ),
+      } as unknown as ToneReviewer;
+      const { manager } = makeConversationManager(
+        ['「一言目」'],
+        undefined,
+        { char_a: { provider: 'together', model: 'model-a', temperature: 0.3 } },
+        toneReviewer,
+      );
+      const sessionState = makeSessionState();
+
+      const result = await manager.runTurn(sessionState);
+
+      expect(result.speakerId).toBe('char_a');
+      expect(toneReviewer.review).toHaveBeenCalledWith(
+        expect.objectContaining({ model: 'model-a' }),
+      );
+    });
+
+    it('ToneReviewerを指定しない場合、既定のToneReviewerが使われ発話生成が失敗しない', async () => {
+      // 既定のToneReviewerは実プロンプトテンプレート(utterance/tone_review)を使うが、
+      // このテスト群のfakeテンプレートローダーはテンプレート名を無視して固定文字列を返すため、
+      // 既定ToneReviewer内部のプロンプト構築は失敗し、ToneReviewer.review()の
+      // フォールバック（元のutteranceを採用）が働く。ConversationManager.runTurn自体が
+      // 例外を投げずに完了することを確認する（デフォルト値配線の回帰防止）。
+      const { manager } = makeConversationManager(['「そのままの発話」']);
+      const sessionState = makeSessionState();
+
+      const result = await manager.runTurn(sessionState);
+
+      expect(result.utterance).toBe('そのままの発話');
     });
   });
 });

@@ -48,9 +48,21 @@ export interface MemoryLayerPayload {
   retrieved: MemoryItem[];
 }
 
+// Issue #5対応（plan-e、T43）: ToneReviewer（F7、追加のLLM呼び出しによる口調審査・書き換え）
+// の結果をログ・レポートで目視確認できるよう、既存のlayer:llmイベントにoptionalで追加した
+// （新規イベント名は増やさず、1ターン1回のlayer:llm発行という既存の順序を変えないため）。
+export interface LlmToneReview {
+  prompt: string;
+  // 審査呼び出し自体が失敗した場合はnull（ToneReviewer.review()参照）。
+  rawOutput: string | null;
+  applied: boolean;
+  error?: string;
+}
+
 export interface LlmLayerPayload {
   prompt: string;
   rawOutput: string;
+  toneReview?: LlmToneReview;
 }
 
 export type TurnCompletePayload = TurnResult;
