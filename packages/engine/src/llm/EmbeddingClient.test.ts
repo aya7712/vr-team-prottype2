@@ -9,6 +9,11 @@ describe('EmbeddingClient', () => {
     vi.restoreAllMocks();
   });
 
+  it('getModelはコンストラクタに渡したモデル名を返す（T43）', () => {
+    const client = new EmbeddingClient('test-api-key', 'my-embedding-model');
+    expect(client.getModel()).toBe('my-embedding-model');
+  });
+
   it('レスポンスからembeddingベクトルを抽出する', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,

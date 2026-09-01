@@ -272,6 +272,15 @@ export interface MemoryRepository {
   getAllCandidates(filter: MemoryFilter): Promise<MemoryItem[]>;
   recordRecall(sessionId: string, turnNo: number, memoryId: string, source: 'preset' | 'session'): Promise<void>;
   getRecentRecalls(sessionId: string, withinTurns: number): Promise<string[]>; // memoryId一覧
+  // T43（Issue #5 plan-f）: 会話中に生成された発話をsession_memories（D8）へ書き込む。
+  saveSessionMemory(sessionId: string, originTurnNo: number, item: MemoryItem): Promise<void>;
+  // T15時点ではMemoryRepositoryImpl固有の書き込み専用メソッド（CacheSyncServiceのみが使用）
+  // だったが、T43でMemoryRetriever（engine層）からも呼ぶ必要が生じたためinterfaceへ昇格した。
+  saveEmbedding(memoryId: string, source: 'preset' | 'session', model: string, vector: Float32Array): Promise<void>;
+  // T43自己レビューで発見: getAllCandidatesはsession_memories全体（セッション横断）を返すため、
+  // 「このセッション中の自分の過去発話」に限定したいretrieveSelfVoiceExemplars向けにsessionId/
+  // ownerで絞り込み済みの候補を返す専用メソッドとして分離した。
+  getSelfVoiceCandidates(sessionId: string, speakerId: string): Promise<MemoryItem[]>;
 }
 
 export interface MemoryFilter {
@@ -290,6 +299,22 @@ export class MemoryRetriever {
   // Topic/DialoguePlannerからのクエリを受け、F3.4の①〜④の手順で記憶を検索する
   // （③フィルタリング・④上位選出はT07、②意味的再ランキングはT15で追加）
   async retrieve(query: MemoryQuery): Promise<MemoryItem[]>;
+
+  // T43（Issue #5「口調が前の話者に引っ張られる」対応, plan-f）:
+  // 話者自身の過去発話（session_memories, shareable: false）の中から現在の話題に
+  // 意味的に近いものを最大2件返す（retrieve()のMAX_RESULTSとは別枠のプール・上限）。
+  async retrieveSelfVoiceExemplars(query: SelfVoiceQuery): Promise<MemoryItem[]>;
+
+  // ConversationManagerが発話生成後に呼び、話者自身の発話をsession_memoriesへ永続化する
+  // （embeddingServiceが注入されていれば同時にmemory_embeddingsへも保存する）。
+  async recordSelfUtterance(params: RecordSelfUtteranceParams): Promise<void>;
+}
+
+export interface SelfVoiceQuery {
+  sessionId: string;
+  turnNo: number;
+  speakerId: string;
+  topicKeywords: string[];
 }
 
 export interface MemoryQuery {
@@ -494,7 +519,7 @@ export class PromptBuilder {
 
 | ファイル | 用途 | プレースホルダー |
 |---|---|---|
-| `utterance/base.md` | セリフ生成の基本テンプレート（F7.1） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{emotion}}`, `{{speakingStyle}}`, `{{targetName}}`, `{{addressTerm}}`, `{{dialogueAct}}`, `{{retrievedMemory}}`, `{{recentDialogue}}` |
+| `utterance/base.md` | セリフ生成の基本テンプレート（F7.1） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{emotion}}`, `{{speakingStyle}}`, `{{targetName}}`, `{{addressTerm}}`, `{{dialogueAct}}`, `{{topicLabel}}`, `{{retrievedMemory}}`, `{{selfVoiceExemplars}}`（T43, Issue #5 plan-f: 話者自身の過去発話の実例）, `{{recentDialogue}}` |
 | `utterance/with_shared_memory.md` | 共有記憶を参照させたい場合に`base.md`の出力へ追加で組み合わせるテンプレート | `{{baseInstruction}}`, `{{targetName}}`, `{{characterName}}`, `{{sharedMemory}}` |
 
 T10時点では`utterance/`配下のみ作成した。`dialogueAct/candidate_selection.md`（F5.5、小型LLMによるAct候補提案の任意機能）はF5.5自体が未実装のため作成していない。

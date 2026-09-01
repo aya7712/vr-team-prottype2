@@ -186,7 +186,7 @@ Turn Logger（SQLiteへ書き込み: F8.1）
 | `layer:relationship` | Relationship Engineの計算結果 |
 | `layer:character` | Character Brainの更新後状態 |
 | `layer:dialoguePlanner` | Act候補スコア内訳・確率分布・選択結果 |
-| `layer:memory` | 想起された記憶一覧 |
+| `layer:memory` | 想起された記憶一覧（`retrieved`）と、T43（Issue #5 plan-f）で追加した話者自身の過去発話の実例（`selfVoiceExemplars`） |
 | `layer:llm` | 送信プロンプト全文・LLM生出力 |
 | `turn:complete` | 最終セリフ、ターンサマリ |
 | `session:end` | セッション全体の終了理由（`completed`/`stopped`/`failed`）、`failed`時はエラーメッセージ（T41） |
@@ -205,7 +205,7 @@ packages/engine/prompts/
     └── candidate_selection.md  # F5.5 小型LLMによるAct候補提案用（任意機能）
 ```
 
-- テンプレートは `{{characterName}}`, `{{emotion}}`, `{{dialogueAct}}`, `{{retrievedMemory}}` 等のプレースホルダーを含むテキストファイルとして管理する。
+- テンプレートは `{{characterName}}`, `{{emotion}}`, `{{dialogueAct}}`, `{{retrievedMemory}}`, `{{selfVoiceExemplars}}`（T43, Issue #5 plan-f） 等のプレースホルダーを含むテキストファイルとして管理する。
 - 実行時に`Prompt Builder`がテンプレートを読み込み、Character Brain/Dialogue Planner/Memory Retrieverの出力を差し込んで最終プロンプトを構築する。
 - テンプレートファイルの変更はNode.jsプロセスの再起動なしに反映されるよう、開発時はファイル変更を都度読み込む（キャッシュしない、またはmtimeで無効化する）簡易ホットリロードとする。
 

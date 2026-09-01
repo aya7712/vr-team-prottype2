@@ -84,7 +84,13 @@ function makeConversationManager(
   llmResponses: string[],
   eventBus?: EngineEventBus,
   characterLlmConfigs?: Partial<Record<'char_a' | 'char_b', CharacterDefRecord['llm']>>,
-): { manager: ConversationManager; llmClient: LlmClient; relationshipGraph: RelationshipGraph } {
+  templateContent = '{{characterName}}が{{topicLabel}}について{{dialogueAct}}する。',
+): {
+  manager: ConversationManager;
+  llmClient: LlmClient;
+  relationshipGraph: RelationshipGraph;
+  memoryRepo: InMemoryMemoryRepository;
+} {
   const relationshipGraph = new RelationshipGraph();
   relationshipGraph.addEdge({
     characterId: 'char_a',
@@ -111,9 +117,7 @@ function makeConversationManager(
   const memoryRepo = new InMemoryMemoryRepository([]);
   const memoryRetriever = new MemoryRetriever(memoryRepo);
 
-  const templateLoader = makeFakeTemplateLoader(
-    '{{characterName}}が{{topicLabel}}について{{dialogueAct}}する。',
-  );
+  const templateLoader = makeFakeTemplateLoader(templateContent);
   const promptBuilder = new PromptBuilder(templateLoader);
 
   let callIndex = 0;
@@ -153,7 +157,7 @@ function makeConversationManager(
     new RelationshipUpdater(),
     eventBus,
   );
-  return { manager, llmClient, relationshipGraph };
+  return { manager, llmClient, relationshipGraph, memoryRepo };
 }
 
 function makeSessionState(): SessionState {
@@ -323,6 +327,7 @@ describe('ConversationManager', () => {
     });
     expect(payloadsByEvent['layer:memory'][0]).toMatchObject({
       retrieved: expect.any(Array),
+      selfVoiceExemplars: expect.any(Array),
     });
     expect(payloadsByEvent['layer:llm'][0]).toMatchObject({
       prompt: expect.any(String),
@@ -355,5 +360,43 @@ describe('ConversationManager', () => {
       model: 'model-b',
       temperature: 0.9,
     });
+  });
+
+  // T43（Issue #5「口調が前の話者に引っ張られる」対応, plan-f）
+  it('runTurnは発話生成後、話者自身の発話をMemoryRepositoryへ自己記憶として永続化する', async () => {
+    const { manager, memoryRepo } = makeConversationManager(['「やったー！」']);
+    const sessionState = makeSessionState();
+
+    const result = await manager.runTurn(sessionState);
+
+    const saved = await memoryRepo.getAllCandidates({ ownerId: result.speakerId });
+    expect(saved).toHaveLength(1);
+    expect(saved[0]).toMatchObject({
+      source: 'session',
+      owner: result.speakerId,
+      participants: [result.speakerId],
+      summary: 'やったー！',
+      shareable: false,
+    });
+  });
+
+  it('2巡目以降、話者自身の過去発話がプロンプトの{{selfVoiceExemplars}}に反映される', async () => {
+    const { manager, llmClient } = makeConversationManager(
+      ['「一言目だよ」', '「相手の発話」', '「二言目だよ」'],
+      undefined,
+      undefined,
+      '{{characterName}}: {{selfVoiceExemplars}}',
+    );
+    const sessionState = makeSessionState();
+
+    const first = await manager.runTurn(sessionState); // char_a: 「一言目だよ」を記憶として保存
+    await manager.runTurn(sessionState); // char_b
+    const third = await manager.runTurn(sessionState); // char_aが再び話す
+
+    expect(first.speakerId).toBe('char_a');
+    expect(third.speakerId).toBe('char_a');
+    // third発話直前のプロンプト（3回目の呼び出し）にchar_a自身の1回目の発話が含まれること。
+    const [thirdPrompt] = (llmClient.complete as Mock).mock.calls[2] as [string];
+    expect(thirdPrompt).toContain('一言目だよ');
   });
 });

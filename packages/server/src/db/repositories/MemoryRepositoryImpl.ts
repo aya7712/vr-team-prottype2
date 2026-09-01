@@ -81,6 +81,59 @@ export class MemoryRepositoryImpl implements MemoryRepository {
     );
   }
 
+  // T43（Issue #5 plan-f）: session_memories（data-design.md 5.2, D8）へ書き込む。
+  // MemoryItem自体はpreset由来の記憶とも共有する型のためsessionId/originTurnNoは
+  // 持たず、呼び出し元（MemoryRetriever）から別引数で受け取る（recordRecallと同形式）。
+  async saveSessionMemory(
+    sessionId: string,
+    originTurnNo: number,
+    item: MemoryItem,
+  ): Promise<void> {
+    this.db
+      .prepare(
+        `
+        INSERT INTO session_memories
+          (id, session_id, owner, participants_json, origin_turn_no, summary, tags_json,
+           importance, emotion, shareable, created_at)
+        VALUES (@id, @sessionId, @owner, @participants, @originTurnNo, @summary, @tags,
+                @importance, @emotion, @shareable, @createdAt)
+      `,
+      )
+      .run({
+        id: item.id,
+        sessionId,
+        owner: item.owner,
+        participants: JSON.stringify(item.participants),
+        originTurnNo,
+        summary: item.summary,
+        tags: JSON.stringify(item.tags),
+        importance: item.importance,
+        emotion: item.emotion ?? null,
+        shareable: item.shareable ? 1 : 0,
+        createdAt: new Date().toISOString(),
+      });
+  }
+
+  // T43自己レビューで発見: getAllCandidatesはsession_memories全体（セッション横断）を返すため、
+  // 「このセッション中の自分の過去発話」に限定したいretrieveSelfVoiceExemplars向けには
+  // session_id/ownerでSQL側から絞り込んだ専用クエリを使う（data-design.md 6.3参照）。
+  async getSelfVoiceCandidates(sessionId: string, speakerId: string): Promise<MemoryItem[]> {
+    const rows = this.db
+      .prepare(
+        `
+        SELECT id, owner, participants_json, NULL as occurred_at, NULL as occurred_era,
+               NULL as location, summary, tags_json, importance, emotion, shareable,
+               NULL as related_json, NULL as body
+        FROM session_memories
+        WHERE session_id = ? AND owner = ?
+      `,
+      )
+      .all(sessionId, speakerId) as Omit<MemoryRow, 'source'>[];
+    return rows.map((row) =>
+      rowToMemoryItem({ ...row, source: 'session', owner: row.owner ?? '' }),
+    );
+  }
+
   async getAllCandidates(filter: MemoryFilter): Promise<MemoryItem[]> {
     const presetRows = this.db.prepare('SELECT * FROM memory_preset_cache').all() as Omit<
       MemoryRow,
@@ -132,9 +185,16 @@ export class MemoryRepositoryImpl implements MemoryRepository {
       .run(sessionId, turnNo, memoryId, source, new Date().toISOString());
   }
 
-  // MemoryRepositoryインターフェースには含まれない書き込み専用メソッド（server側のみで使用）。
-  // CacheSyncService（T15）がmemory_preset_cache同期時にembeddingを計算してここへ保存する。
-  saveEmbedding(memoryId: string, source: MemorySource, model: string, vector: Float32Array): void {
+  // CacheSyncService（T15）がmemory_preset_cache同期時にembeddingを計算してここへ保存する他、
+  // T43でMemoryRetriever.recordSelfUtterance（engine層）からもMemoryRepositoryインターフェース
+  // 経由で呼ばれるようになったため、interfaceのシグネチャ（Promise<void>）に合わせてasync化した
+  // （better-sqlite3自体は同期APIのため処理本体は変わらない）。
+  async saveEmbedding(
+    memoryId: string,
+    source: MemorySource,
+    model: string,
+    vector: Float32Array,
+  ): Promise<void> {
     const buffer = Buffer.from(vector.buffer, vector.byteOffset, vector.byteLength);
     this.db
       .prepare(

@@ -98,19 +98,36 @@ function renderDialoguePlanner(payload: DialoguePlannerLayerPayload | undefined)
     </table>`;
 }
 
+// T43（Issue #5「口調が前の話者に引っ張られる」対応, plan-f）:
+// `selfVoiceExemplars`（話者自身の過去発話、口調の実例）は`retrieved`
+// （他キャラとの共有記憶等）とは別枠のため、人間が目視確認しやすいよう分けて表示する。
 function renderMemory(payload: MemoryLayerPayload | undefined): string {
-  if (!payload || payload.retrieved.length === 0) {
+  const retrieved = payload?.retrieved ?? [];
+  const selfVoiceExemplars = payload?.selfVoiceExemplars ?? [];
+  if (retrieved.length === 0 && selfVoiceExemplars.length === 0) {
     return '<p class="muted">想起された記憶はありません。</p>';
   }
-  return `
+  const retrievedList =
+    retrieved.length === 0
+      ? '<p class="muted">想起された記憶はありません。</p>'
+      : `
     <ul class="memory-list">
-      ${payload.retrieved
+      ${retrieved
         .map(
           (m) =>
             `<li>[${m.shareable ? 'Shared' : 'Self'}] ${escapeHtml(m.summary)}（重要度 ${m.importance.toFixed(2)}）</li>`,
         )
         .join('')}
     </ul>`;
+  const selfVoiceList =
+    selfVoiceExemplars.length === 0
+      ? ''
+      : `
+    <p class="muted">（参考）あなた自身の過去の発言例:</p>
+    <ul class="memory-list">
+      ${selfVoiceExemplars.map((m) => `<li>${escapeHtml(m.summary)}</li>`).join('')}
+    </ul>`;
+  return retrievedList + selfVoiceList;
 }
 
 function renderLlm(payload: LlmLayerPayload | undefined): string {

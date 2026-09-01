@@ -12,4 +12,13 @@ describe('EmbeddingService', () => {
     expect(result).toBe(vector);
     expect(client.embed).toHaveBeenCalledWith('テスト');
   });
+
+  it('getModelはEmbeddingClient.getModelへ委譲する（T43）', () => {
+    const client = {
+      getModel: vi.fn().mockReturnValue('my-embedding-model'),
+    } as unknown as EmbeddingClient;
+    const service = new EmbeddingService(client);
+
+    expect(service.getModel()).toBe('my-embedding-model');
+  });
 });

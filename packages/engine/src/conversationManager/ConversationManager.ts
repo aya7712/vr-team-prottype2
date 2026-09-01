@@ -132,15 +132,25 @@ export class ConversationManager {
       expectation,
     });
 
-    const retrievedMemories = await this.memoryRetriever.retrieve({
-      sessionId: sessionState.sessionId,
-      turnNo: nextTurnNo,
-      speakerId,
-      targetIds: [targetId],
-      topicKeywords: [topic.label],
-      dialogueAct: act,
-    });
-    this.eventBus?.emit('layer:memory', { retrieved: retrievedMemories });
+    // T43（Issue #5 plan-f）: 「参考にする記憶」（他キャラとの共有記憶等）と「自分自身の
+    // 過去の発言例」は別枠の検索のため並行して取得する（MemoryRetrieverのコメント参照）。
+    const [retrievedMemories, selfVoiceExemplars] = await Promise.all([
+      this.memoryRetriever.retrieve({
+        sessionId: sessionState.sessionId,
+        turnNo: nextTurnNo,
+        speakerId,
+        targetIds: [targetId],
+        topicKeywords: [topic.label],
+        dialogueAct: act,
+      }),
+      this.memoryRetriever.retrieveSelfVoiceExemplars({
+        sessionId: sessionState.sessionId,
+        turnNo: nextTurnNo,
+        speakerId,
+        topicKeywords: [topic.label],
+      }),
+    ]);
+    this.eventBus?.emit('layer:memory', { retrieved: retrievedMemories, selfVoiceExemplars });
 
     const prompt = this.buildPrompt(
       sessionState,
@@ -150,6 +160,7 @@ export class ConversationManager {
       characterState,
       relationshipContext,
       retrievedMemories,
+      selfVoiceExemplars,
       topic,
     );
     const speakerLlmConfig = this.characterDefs.get(speakerId)?.llm ?? null;
@@ -159,6 +170,18 @@ export class ConversationManager {
     });
     const utterance = this.outputParser.extractUtterance(rawOutput);
     this.eventBus?.emit('layer:llm', { prompt, rawOutput });
+
+    // T43: 生成した発話を話者自身の「自己記憶」として永続化する（次ターン以降、この
+    // キャラクターが再び話す際にretrieveSelfVoiceExemplarsで想起される）。他のI/O呼び出しと
+    // 同様、失敗時は例外をそのまま伝播させる（implementation-rules.md 5章）。
+    await this.memoryRetriever.recordSelfUtterance({
+      sessionId: sessionState.sessionId,
+      turnNo: nextTurnNo,
+      speakerId,
+      utterance,
+      topicLabel: topic.label,
+      emotion: characterState.emotion.label,
+    });
 
     const result: TurnResult = {
       sessionId: sessionState.sessionId,
@@ -283,6 +306,7 @@ export class ConversationManager {
     characterState: CharacterState,
     relationshipContext: RelationshipContext,
     retrievedMemories: MemoryItem[],
+    selfVoiceExemplars: MemoryItem[],
     topic: Topic,
   ): string {
     const speakerDef = this.characterDefs.get(speakerId);
@@ -308,6 +332,9 @@ export class ConversationManager {
       dialogueAct: act,
       topicLabel: topic.label,
       retrievedMemory: retrievedMemories.map((m) => m.summary).join('\n') || '(なし)',
+      // T43: 話者自身の過去発話をtoneSampleと並べて渡す（Issue #5対応、plan-f）。
+      selfVoiceExemplars:
+        selfVoiceExemplars.map((m) => `- ${m.summary}`).join('\n') || '(まだ発言例がありません)',
       recentDialogue: recentDialogue || '(会話開始)',
     });
   }
