@@ -104,7 +104,7 @@ export class MemoryRepositoryImpl implements MemoryRepository {
 
     const all = [...presetItems, ...sessionItems];
     return all.filter((item) => {
-      if (filter.ownerId && item.owner !== filter.ownerId) return false;
+      if (item.owner !== filter.ownerId) return false;
       if (filter.shareableOnly && !item.shareable) return false;
       if (
         filter.participants &&

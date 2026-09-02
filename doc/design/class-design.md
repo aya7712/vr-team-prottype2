@@ -276,7 +276,9 @@ export interface MemoryRepository {
 
 export interface MemoryFilter {
   participants?: string[];
-  ownerId?: string;
+  // T43（Issue #9）: 他人視点の記憶（owner違い）が発話材料に混ざらないよう、
+  // ownerIdは省略不可の必須条件とする（呼び出し側が指定を忘れる余地をなくす）。
+  ownerId: string;
   shareableOnly?: boolean;
 }
 
@@ -286,6 +288,10 @@ export class MemoryRetriever {
   // 全件走査で代替した（プロトタイプ規模のデータ量では①を省略してよいという
   // data-design.md 6.2の記載を採用）。
   constructor(private repo: MemoryRepository, private embeddingService?: EmbeddingService) {}
+
+  // retrieve()は必ずgetAllCandidatesにownerId: query.speakerIdを渡す（T43）。
+  // participantsは自己記憶/共有記憶の判定に使うのみで、記憶の視点（owner）を
+  // 話者に固定するのはownerIdの役割。
 
   // Topic/DialoguePlannerからのクエリを受け、F3.4の①〜④の手順で記憶を検索する
   // （③フィルタリング・④上位選出はT07、②意味的再ランキングはT15で追加）

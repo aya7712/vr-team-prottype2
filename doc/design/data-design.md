@@ -306,6 +306,7 @@ Memory Retriever
 ### 6.3 Shared Memory / 自己記憶の区別
 - `owner`が単一キャラクターかつ`participants`が1名のみ → 自己記憶（F3.1）
 - `participants`が2名以上 → 共有記憶（F3.2）。会話中の相手が`participants`に含まれるかどうかでMemory Retrieverの検索対象を自己記憶/共有記憶で切り替える（F2.2 Relationship Managerの「共有記憶検索」と連動）。
+- 同じ出来事でも`owner`ごとに別レコードとして保持される（例: `mem_a_0001`と`mem_b_0001`は同じ出来事のchar_a視点/char_b視点）。`participants`は「誰が関わった出来事か」を表すだけで「誰の視点の記憶か」は表さないため、Memory Retrieverは`participants`だけでなく`owner`＝話者（`MemoryQuery.speakerId`）でも必ず絞り込む（T43、Issue #9）。これを怠ると、`participants`に話者を含む他人視点の記憶（例: char_bの日記にchar_aが登場する記憶）がchar_aの発話材料に混入してしまう。
 
 ### 6.4 短期記憶・中期記憶の扱い（参考）
 - 短期記憶（D7, 直近の会話履歴）は検索対象にせず、Topic Analyzer/Dialogue Plannerがオンメモリの会話履歴配列を直接参照する。

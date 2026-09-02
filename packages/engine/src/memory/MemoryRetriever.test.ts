@@ -102,6 +102,21 @@ describe('MemoryRetriever', () => {
     expect(ids).toEqual(['mem_self', 'mem_shared']);
   });
 
+  it('Issue #9: participantsに含まれていてもowner違いの記憶（他人視点）は候補にならない', async () => {
+    const repo = new InMemoryMemoryRepository([
+      makeMemory({ id: 'mem_a_own', owner: 'char_a', participants: ['char_a', 'char_b'] }),
+      // char_bの視点で書かれた同じ出来事の記憶。participantsにchar_aを含むが、
+      // 発話者がchar_aである以上、これはchar_aの発話材料にしてはいけない。
+      makeMemory({ id: 'mem_b_own', owner: 'char_b', participants: ['char_a', 'char_b'] }),
+    ]);
+    const retriever = new MemoryRetriever(repo);
+
+    const results = await retriever.retrieve(
+      makeQuery({ speakerId: 'char_a', targetIds: ['char_b'] }),
+    );
+    expect(results.map((m) => m.id)).toEqual(['mem_a_own']);
+  });
+
   it('topicKeywordsに一致する記憶ほど上位に来る', async () => {
     const repo = new InMemoryMemoryRepository([
       makeMemory({ id: 'mem_unrelated', summary: '無関係な話', importance: 5 }),
