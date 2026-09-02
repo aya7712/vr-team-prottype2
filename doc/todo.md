@@ -1,5 +1,9 @@
 # 実装TODOリスト
 
+> **【運用終了】** このファイルへの新規追加は行いません。並行開発時のコンフリクトを避けるため、
+> 以降の変更管理は `doc/changelog/`（1変更1ファイル）に移行しました。
+> このファイルは過去の実装履歴（T01〜T42）として保持しています。
+
 対象参照: `doc/design/requirements.md`, `doc/design/features.md`, `doc/design/architecture.md`, `doc/design/data-design.md`, `doc/design/class-design.md`, `doc/design/implementation-rules.md`, `doc/design/ui-design-rules.md`
 
 ## このファイルの使い方（Claude Code向け）

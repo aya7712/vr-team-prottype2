@@ -45,7 +45,7 @@ Issue: {{ISSUE_URL}}
 5. 生成したHTMLを`Artifact`ツールで公開する（favicon等は適当でよい、
    descriptionに案のタイトルと"Issue #<番号>"を含める）。
 6. **`packages/`配下を変更した場合、コミット前に必ず自己レビューを行う。**
-   これはこのリポジトリ自身の運用ルール（`doc/todo.md`「このファイルの使い方」4番、
+   これはこのリポジトリ自身の運用ルール（`doc/changelog/README.md`、
    `doc/design/implementation-rules.md` 9.1）であり、あなた自身（実装した本人）が
    レビューするのではなく、独立した別視点でのレビューをさせること。以下の優先順で試すこと:
    a. まず**独立した`Agent`ツール呼び出し（`model: "sonnet"`固定、`subagent_type`は
@@ -62,10 +62,12 @@ Issue: {{ISSUE_URL}}
    - `doc/design/architecture.md`/`class-design.md`/`data-design.md`との乖離
    - 冗長な実装・過剰な抽象化がないか
    レビュー結果に対応した上で、コミットメッセージに
-   `Self-Review: <a.ならsonnet / b.ならcode-review / c.ならself-check>, TODO=<doc/todo.mdに追記した項番>, findings=<件数>-<対応状況>`
+   `Self-Review: <a.ならsonnet / b.ならcode-review / c.ならself-check>, findings=<件数>-<対応状況>`
    というtrailerを付けること（`.husky/commit-msg`がこれを検証し、無ければコミットが
-   拒否される）。`doc/todo.md`への項番追記自体もこの手順に含む
-   （末尾の「未着手事項の追加について」の指示に従う）。
+   拒否される）。あわせて`doc/changelog/README.md`のテンプレートに従い、
+   `doc/changelog/`配下に今回の変更を記録する新規ファイルを1件作成すること
+   （ファイル名は`YYYYMMDD-HHMMSS-<slug>.md`、既存ファイルの編集は不要）。
+   内容は手順7のPR本文（概要・原因/期待効果・自己レビュー）と揃えてよい。
 7. ブランチをpushし、PRを作成する。PR本文は以下のテンプレートに従い、
    簡潔に書くこと（各項目1〜2文。案の説明の全文転記はしない）:
 
@@ -88,6 +90,8 @@ Issue: {{ISSUE_URL}}
    このセクション自体を省略してよい）
    Self-Review: <sonnet/code-review/self-check> / 未対応の指摘とその理由
    ```
+
+   このPR本文と同じ内容を`doc/changelog/`配下の新規ファイルにも残すこと（手順6参照）。
 8. 最後にPR URLとArtifact URLを報告する。
 
 # 注意
