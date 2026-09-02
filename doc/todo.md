@@ -238,6 +238,11 @@
   テスト: `exportConversationReport.ts`はスクリプト単体（レンダリング関数）のため既存の`npm test`（server）の対象外。`e2eConversation.ts`修正後、実際に`--db=<path>`指定でセッションが永続化されること、生成したsqliteファイルから`exportConversationReport.js`でレポートが生成できることを手動実行で確認した。
   **実施内容（対応済み）**: 上記の通り実装・動作確認済み。自動化フロー自体のオーケストレーション（案出しエージェント／実装エージェントのプロンプト）は`doc/agent-prompts/`配下に追加（`packages/`配下ではないため本trailerの対象外）。
 
+- [x] **T43. MemoryRetrieverが他人（owner≠話者）の記憶をLLMへの発話材料として渡してしまう問題の修正（Issue #9）**
+  2026-09-02、Issue #9で発見。`MemoryRetriever.retrieve()`（`packages/engine/src/memory/MemoryRetriever.ts`）は`repo.getAllCandidates({ participants: [query.speakerId] })`で話者が`participants`に含まれる記憶を取得しているが、`data-design.md` 6.3で「自己記憶/共有記憶」は`owner`が話者であることが前提（`owner`が単一キャラクターかつ`participants`が1名のみ→自己記憶）にもかかわらず、取得後のフィルタが`item.participants.length <= 1`という参加者数のみで自己記憶を判定しており`owner`を一切見ていなかった。実データ（`character_def`のプリセット記憶）では、あるキャラクターの視点の記憶に他キャラクターが同席し`participants`に含まれるケース（`owner`≠同席者）が大半（163件中161件）のため、話者が同席しているだけの他人の記憶が発話材料としてLLMに渡っていた。
+  テスト: `MemoryRetriever.test.ts`に「ownerが話者ではない記憶は、participantsに話者を含んでいても対象外になる」ケースを追加（修正前は失敗、修正後は成功することを確認）。
+  **実施内容（対応済み）**: `MemoryRetriever.retrieve()`で`repo.getAllCandidates()`の結果を受け取った直後に`item.owner === query.speakerId`のハードフィルタを追加し、以降の自己記憶/共有記憶判定（`isSelfMemory`）もこのフィルタ後の集合に対して行うよう修正した。リポジトリ層のクエリ条件（`participants`）自体は変更していない（DB層のクエリ改善は別Issue対応案のスコープ）。実際に4体でのE2E会話生成（`e2eConversation.ts`、20ターン）を行い、`memory_recall_log`に記録された全60件の想起記憶について、記録した話者(`turns.speaker_id`)と記憶の`owner`が完全に一致することをsqlite上で確認した。
+
 ## 未着手事項の追加について
 
 新たに必要なTODOに気づいた場合は、該当フェーズの末尾に追記してから着手する（既存の番号は変更しない。新規は次の番号を採番する）。大きく設計を変える必要が生じた場合は、実装を進める前にユーザーに確認する。

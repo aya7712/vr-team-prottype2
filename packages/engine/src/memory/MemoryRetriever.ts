@@ -37,11 +37,19 @@ export class MemoryRetriever {
       participants: [query.speakerId],
     });
 
-    // 6.3: 自己記憶（participantsが話者のみ）は常に対象。共有記憶
-    // （participantsが2名以上）は、今の会話相手（targetIds）が参加者に
-    // 含まれる場合のみ対象にする（無関係な第三者との共有記憶は使わない）。
+    // Issue #9: `participants`条件だけでは「話者が参加者ではあるが、
+    // 記憶の持ち主（owner）は別のキャラクター」のケース（例: char_bの視点の
+    // 思い出にchar_aが同席していた）を排除できず、他人の思い出がLLMに渡って
+    // しまっていた。data-design.md 6.3の「owner」定義に従い、話者自身が
+    // ownerの記憶だけを候補とするハードフィルタをここで明示的にかける。
+    // （repo.getAllCandidatesの`participants`クエリ自体は変更しない）
+    const ownMemories = speakerCandidates.filter((item) => item.owner === query.speakerId);
+
+    // 6.3: 自己記憶（owner=話者かつparticipantsが話者のみ）は常に対象。共有記憶
+    // （owner=話者かつparticipantsが2名以上）は、今の会話相手（targetIds）が
+    // 参加者に含まれる場合のみ対象にする（無関係な第三者との共有記憶は使わない）。
     // targetIdsが空（相手がいない）場合は自己記憶のみが対象になる。
-    const candidates = speakerCandidates.filter((item) => {
+    const candidates = ownMemories.filter((item) => {
       const isSelfMemory = item.participants.length <= 1;
       if (isSelfMemory) return true;
       return query.targetIds.some((targetId) => item.participants.includes(targetId));
