@@ -46,6 +46,10 @@ export interface DialoguePlannerLayerPayload {
 
 export interface MemoryLayerPayload {
   retrieved: MemoryItem[];
+  // Issue #9対応: MemoryRetriever/MemoryRepositoryが誤ってowner !== speakerIdの
+  // 記憶を返した場合に、ConversationManager.buildPrompt直前の最終ガードで
+  // 除外した件数（`retrieved`はガード前の件数のままにし、除外前後を比較できるようにする）。
+  filteredOutCount: number;
 }
 
 export interface LlmLayerPayload {

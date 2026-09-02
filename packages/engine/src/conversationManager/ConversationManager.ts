@@ -140,7 +140,15 @@ export class ConversationManager {
       topicKeywords: [topic.label],
       dialogueAct: act,
     });
-    this.eventBus?.emit('layer:memory', { retrieved: retrievedMemories });
+    // Issue #9対応: MemoryRetriever/MemoryRepository側の不具合でowner !== speakerId
+    // の記憶（他人の思い出）が混入して返ってきても、プロンプトへ渡す直前のここを
+    // 最終防波堤として除外する。原因箇所（MemoryRetriever側）自体は別途対応されうるため、
+    // ここでは「LLMに絶対混入させない」ことだけを保証する（class-design.md 6章）。
+    const { memories: safeMemories, filteredOutCount } = this.excludeMemoriesNotOwnedBySpeaker(
+      retrievedMemories,
+      speakerId,
+    );
+    this.eventBus?.emit('layer:memory', { retrieved: retrievedMemories, filteredOutCount });
 
     const prompt = this.buildPrompt(
       sessionState,
@@ -149,7 +157,7 @@ export class ConversationManager {
       act,
       characterState,
       relationshipContext,
-      retrievedMemories,
+      safeMemories,
       topic,
     );
     const speakerLlmConfig = this.characterDefs.get(speakerId)?.llm ?? null;
@@ -273,6 +281,17 @@ export class ConversationManager {
     }
 
     return topic;
+  }
+
+  // Issue #9: LLMへの実混入を防ぐ最終ガード。MemoryRetriever/MemoryRepositoryの
+  // フィルタリング内容に関わらず、owner === speakerIdの記憶（発話者自身の思い出）
+  // のみをプロンプト組み立てに使う。
+  private excludeMemoriesNotOwnedBySpeaker(
+    memories: MemoryItem[],
+    speakerId: string,
+  ): { memories: MemoryItem[]; filteredOutCount: number } {
+    const owned = memories.filter((memory) => memory.owner === speakerId);
+    return { memories: owned, filteredOutCount: memories.length - owned.length };
   }
 
   private buildPrompt(

@@ -66,6 +66,7 @@ describe('LayerInspector', () => {
               shareable: true,
             },
           ],
+          filteredOutCount: 0,
         },
       },
       {

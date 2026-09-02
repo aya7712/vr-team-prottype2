@@ -28,4 +28,28 @@ describe('MemoryList', () => {
 
     expect(screen.getByText('想起された記憶はありません。')).toBeInTheDocument();
   });
+
+  // Issue #9: ConversationManagerの最終ガードで除外された記憶（owner !== speakerId）を
+  // 取り消し線付きで区別表示できることを確認する。
+  it('speakerIdを指定するとowner不一致の記憶を除外表示し、filteredOutCountの件数を表示する', () => {
+    const mixedItems = [
+      ...items,
+      {
+        id: 'm2',
+        source: 'preset' as const,
+        owner: 'char_c',
+        participants: ['char_a'],
+        summary: '除外されるべき他人の思い出',
+        tags: [],
+        importance: 0.5,
+        shareable: true,
+      },
+    ];
+
+    render(<MemoryList items={mixedItems} speakerId="char_a" filteredOutCount={1} />);
+
+    expect(screen.getByText(/除外された記憶（owner不一致/)).toBeInTheDocument();
+    expect(screen.getByText(/除外: owner=char_c/)).toBeInTheDocument();
+    expect(screen.getByText(/除外されるべき他人の思い出/)).toBeInTheDocument();
+  });
 });

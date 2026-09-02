@@ -98,17 +98,29 @@ function renderDialoguePlanner(payload: DialoguePlannerLayerPayload | undefined)
     </table>`;
 }
 
-function renderMemory(payload: MemoryLayerPayload | undefined): string {
+// Issue #9対応: `retrieved`はConversationManagerの最終ガード適用前の一覧のため、
+// speakerIdと`owner`が一致しないitem（=ガードで除外されLLMには渡らなかった記憶）を
+// レポート上でも「除外」として分かるように表示する。
+function renderMemory(payload: MemoryLayerPayload | undefined, speakerId: string): string {
   if (!payload || payload.retrieved.length === 0) {
     return '<p class="muted">想起された記憶はありません。</p>';
   }
+  const filteredOutCount = payload.filteredOutCount ?? 0;
+  const summary =
+    filteredOutCount > 0
+      ? `<p class="memory-filtered-count">除外された記憶（owner不一致、LLMには渡していません）: ${filteredOutCount}件</p>`
+      : '';
   return `
+    ${summary}
     <ul class="memory-list">
       ${payload.retrieved
-        .map(
-          (m) =>
-            `<li>[${m.shareable ? 'Shared' : 'Self'}] ${escapeHtml(m.summary)}（重要度 ${m.importance.toFixed(2)}）</li>`,
-        )
+        .map((m) => {
+          const excluded = m.owner !== speakerId;
+          const label = excluded
+            ? `[除外: owner=${escapeHtml(m.owner)}]`
+            : `[${m.shareable ? 'Shared' : 'Self'}]`;
+          return `<li class="${excluded ? 'memory-excluded' : ''}">${label} ${escapeHtml(m.summary)}（重要度 ${m.importance.toFixed(2)}）</li>`;
+        })
         .join('')}
     </ul>`;
 }
@@ -162,7 +174,7 @@ export function renderConversationReportHtml(params: {
           <section><h3>Topic</h3>${renderTopic(topic)}</section>
           <section><h3>Relationship</h3>${renderRelationship(relationship)}</section>
           <section><h3>Dialogue Planner</h3>${renderDialoguePlanner(planner)}</section>
-          <section><h3>Memory Retriever</h3>${renderMemory(memory)}</section>
+          <section><h3>Memory Retriever</h3>${renderMemory(memory, turn.speakerId)}</section>
           <section><h3>LLM</h3>${renderLlm(llm)}</section>
         </details>
       </article>`;
@@ -199,6 +211,8 @@ table.scores th, table.scores td { text-align: right; padding: 2px 6px; }
 table.scores th:first-child, table.scores td:first-child { text-align: left; }
 table.scores tr.selected { background: color-mix(in oklab, var(--color-accent), transparent 85%); font-weight: bold; }
 .memory-list { margin: 0; padding-left: var(--space-2); font-size: 12px; }
+.memory-filtered-count { font-size: 12px; color: #c0392b; margin: 0 0 4px; }
+.memory-excluded { color: #c0392b; text-decoration: line-through; }
 pre.mono { white-space: pre-wrap; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; padding: var(--space-1); font-size: 12px; }
 .muted { color: var(--color-text-muted); }
 </style>

@@ -265,12 +265,19 @@ export function LogBrowser({ characters }: LogBrowserProps) {
 
             <section>
               <h2 style={{ fontSize: 14 }}>Memory Retriever</h2>
-              <MemoryList
-                items={
-                  findLayerPayload<MemoryLayerPayload>(detail.layerEvents, 'memory')?.retrieved ??
-                  []
-                }
-              />
+              {(() => {
+                const memoryPayload = findLayerPayload<MemoryLayerPayload>(
+                  detail.layerEvents,
+                  'memory',
+                );
+                return (
+                  <MemoryList
+                    items={memoryPayload?.retrieved ?? []}
+                    speakerId={detail.speakerId}
+                    filteredOutCount={memoryPayload?.filteredOutCount}
+                  />
+                );
+              })()}
             </section>
 
             <section>

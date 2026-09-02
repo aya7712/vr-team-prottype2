@@ -32,6 +32,8 @@ import { OutputParser } from '../llm/OutputParser.js';
 import type { PromptTemplateLoader } from '../llm/PromptTemplateLoader.js';
 import type { LlmClient } from '../llm/LlmClient.js';
 import type { CharacterDefRecord } from '../data/types.js';
+import type { MemoryItem } from '../types/memory.js';
+import type { MemoryLayerPayload } from '../types/events.js';
 
 function makeCharacterDef(
   id: string,
@@ -84,7 +86,13 @@ function makeConversationManager(
   llmResponses: string[],
   eventBus?: EngineEventBus,
   characterLlmConfigs?: Partial<Record<'char_a' | 'char_b', CharacterDefRecord['llm']>>,
-): { manager: ConversationManager; llmClient: LlmClient; relationshipGraph: RelationshipGraph } {
+  memoryItems: MemoryItem[] = [],
+): {
+  manager: ConversationManager;
+  llmClient: LlmClient;
+  relationshipGraph: RelationshipGraph;
+  promptBuilder: PromptBuilder;
+} {
   const relationshipGraph = new RelationshipGraph();
   relationshipGraph.addEdge({
     characterId: 'char_a',
@@ -108,7 +116,7 @@ function makeConversationManager(
     new SpeechExpectationCalculator(),
   );
 
-  const memoryRepo = new InMemoryMemoryRepository([]);
+  const memoryRepo = new InMemoryMemoryRepository(memoryItems);
   const memoryRetriever = new MemoryRetriever(memoryRepo);
 
   const templateLoader = makeFakeTemplateLoader(
@@ -153,7 +161,7 @@ function makeConversationManager(
     new RelationshipUpdater(),
     eventBus,
   );
-  return { manager, llmClient, relationshipGraph };
+  return { manager, llmClient, relationshipGraph, promptBuilder };
 }
 
 function makeSessionState(): SessionState {
@@ -323,6 +331,7 @@ describe('ConversationManager', () => {
     });
     expect(payloadsByEvent['layer:memory'][0]).toMatchObject({
       retrieved: expect.any(Array),
+      filteredOutCount: 0,
     });
     expect(payloadsByEvent['layer:llm'][0]).toMatchObject({
       prompt: expect.any(String),
@@ -355,5 +364,47 @@ describe('ConversationManager', () => {
       model: 'model-b',
       temperature: 0.9,
     });
+  });
+
+  // Issue #9: MemoryRetriever/MemoryRepository側の不具合でowner !== speakerIdの記憶
+  // （他人の思い出）が混ざって返ってきても、buildPrompt直前の最終ガードでLLMへの
+  // 実混入を防ぐことを確認する回帰テスト。
+  it('Issue #9: owner !== speakerIdの記憶はLLMへ渡さず、layer:memoryのfilteredOutCountに計上する', async () => {
+    const eventBus = new EngineEventBus();
+    const othersMemory: MemoryItem = {
+      id: 'mem_other_owner',
+      source: 'preset',
+      owner: 'char_b',
+      participants: ['char_a'],
+      summary: '除外されるべき他人視点の思い出テキスト',
+      tags: [],
+      importance: 1,
+      shareable: true,
+    };
+    const { manager, promptBuilder } = makeConversationManager(['「うん」'], eventBus, undefined, [
+      othersMemory,
+    ]);
+    // テンプレート文字列自体は{{retrievedMemory}}を使わない簡易テンプレート
+    // （makeFakeTemplateLoader）のため、最終ガードが効いているかは実際に
+    // PromptBuilder.buildへ渡された変数（vars.retrievedMemory）で検証する。
+    const buildSpy = vi.spyOn(promptBuilder, 'build');
+    const sessionState = makeSessionState();
+
+    const memoryPayloads: MemoryLayerPayload[] = [];
+    eventBus.on('layer:memory', (payload) => memoryPayloads.push(payload as MemoryLayerPayload));
+
+    const result = await manager.runTurn(sessionState);
+    expect(result.speakerId).toBe('char_a');
+
+    // MemoryRetriever自体は変更していないため、`retrieved`には不一致の記憶がそのまま含まれる
+    // （＝MemoryRetriever/MemoryRepository側の不具合を再現できている）。
+    expect(memoryPayloads).toHaveLength(1);
+    expect(memoryPayloads[0].retrieved.some((m) => m.id === 'mem_other_owner')).toBe(true);
+    expect(memoryPayloads[0].filteredOutCount).toBe(1);
+
+    // 最終ガードにより、PromptBuilder.buildへ渡されるretrievedMemory変数には
+    // 他人の思い出の本文が含まれない（このtargetIdでは他に候補が無いため'(なし)'になる）。
+    const [, vars] = buildSpy.mock.calls[0] as [string, Record<string, string>];
+    expect(vars.retrievedMemory).toBe('(なし)');
   });
 });

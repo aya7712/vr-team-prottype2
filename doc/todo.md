@@ -238,6 +238,12 @@
   テスト: `exportConversationReport.ts`はスクリプト単体（レンダリング関数）のため既存の`npm test`（server）の対象外。`e2eConversation.ts`修正後、実際に`--db=<path>`指定でセッションが永続化されること、生成したsqliteファイルから`exportConversationReport.js`でレポートが生成できることを手動実行で確認した。
   **実施内容（対応済み）**: 上記の通り実装・動作確認済み。自動化フロー自体のオーケストレーション（案出しエージェント／実装エージェントのプロンプト）は`doc/agent-prompts/`配下に追加（`packages/`配下ではないため本trailerの対象外）。
 
+- [x] **T43. Issue #9対応（plan-i）: LLMプロンプトへの他人の思い出混入を防ぐ最終ガード**
+  Issue #9（会話を生成するLLMに他人の思い出＝思い出のOwnerが発話者ではないものが混ざっている）への対応。原因調査の結果、`MemoryRetriever`/`MemoryRepository`（`class-design.md` 6章）側のフィルタリング（`participants`に発話者が含まれるかのみを見ており、`owner === speakerId`までは保証していない）に不具合がありうると判明したが、本TODO（plan-i）ではその根本原因側は変更せず、`ConversationManager.buildPrompt`（F6、`class-design.md` 9章）の直前に「owner === speakerIdでない記憶を除外する」最終ガードを追加し、原因箇所によらずLLMへの実混入を確実に0件にする対症療法的対応を行う。
+  テスト: `ConversationManager.test.ts`に、owner !== speakerIdの記憶を`InMemoryMemoryRepository`へ仕込み、`layer:memory`イベントの`filteredOutCount`が1になること、`PromptBuilder.build`へ渡される`retrievedMemory`変数に当該記憶の本文が含まれないことを確認する回帰テストを追加。
+  **実施内容（対応済み）**: `packages/engine/src/types/events.ts`の`MemoryLayerPayload`に`filteredOutCount: number`を追加。`ConversationManager.ts`に`excludeMemoriesNotOwnedBySpeaker()`を追加し、`retrievedMemories`から`owner === speakerId`のものだけを`buildPrompt`へ渡すようにした（`retrieved`イベントフィールド自体はガード前の一覧のまま保持し、除外前後を比較できるようにした）。`packages/server/src/scripts/exportConversationReport.ts`の`renderMemory`、および`packages/ui`の`MemoryList`（`LayerInspector`/`LogBrowser`双方から再利用）を、除外されたitem数と除外された個々のitem（取り消し線表示）が分かるように更新した（コードレビューで「レポートとF9.3/F9.4のライブUIで表示が食い違う」指摘を受け対応）。`MemoryRetriever`/`MemoryRepository`自体は本TODOでは変更していない（root causeの恒久対応は別案の担当）。実データ（4体・20ターンのE2E実行）でも、1ターンあたり最大3件中1〜3件がowner不一致で除外される（一部ターンは全件除外＝`retrievedMemory`が「(なし)」になる）ケースを確認し、最終ガードがないとLLMに他人の思い出が高頻度で混入していたことを確認した。
+  **自己レビュー**: `/code-review`スキル（Agentツールの新規セッションがこの実行環境では利用できなかったためフォールバック）で2件の指摘を受けた。(1)「owner === speakerIdでの一律除外はF3.2共有記憶を壊すのでは」という指摘は、`character_def`側の実データ（例: `memory/char_a/mem_a_0039.md`と`memory/char_d/mem_d_0017.md`が`related`で相互参照する同一イベントの別視点ファイル）と`MemoryRetriever.test.ts`の既存テストケースを確認した結果、共有記憶は参加者ごとに別ファイル（各自ownerは自分自身）として持つ設計であり、正当な共有記憶は常にowner === speakerIdであることを確認済み。誤指摘と判断し実装は変更せず、根拠をここに記録した。(2)「レポート（exportConversationReport.ts）とライブUI（LayerInspector/LogBrowser）で除外表示が食い違う」という指摘は妥当だったため対応し、`MemoryList`コンポーネントに`speakerId`/`filteredOutCount`を追加して両画面に反映した。
+
 ## 未着手事項の追加について
 
 新たに必要なTODOに気づいた場合は、該当フェーズの末尾に追記してから着手する（既存の番号は変更しない。新規は次の番号を採番する）。大きく設計を変える必要が生じた場合は、実装を進める前にユーザーに確認する。

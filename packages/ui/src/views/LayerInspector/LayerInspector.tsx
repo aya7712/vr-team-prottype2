@@ -18,6 +18,8 @@ export function LayerInspector({ wsUrl }: LayerInspectorProps) {
   const dialoguePlannerEvent = latestByName['layer:dialoguePlanner'];
   const memoryEvent = latestByName['layer:memory'];
   const llmEvent = latestByName['layer:llm'];
+  // Issue #9対応: MemoryListに除外表示させるため、直近の話者IDをlayer:relationshipから拾う。
+  const speakerId = latestByName['layer:relationship']?.payload.speakerId;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
@@ -59,7 +61,11 @@ export function LayerInspector({ wsUrl }: LayerInspectorProps) {
 
       <section>
         <h2 style={{ fontSize: 14 }}>Memory Retriever</h2>
-        <MemoryList items={memoryEvent?.payload.retrieved ?? []} />
+        <MemoryList
+          items={memoryEvent?.payload.retrieved ?? []}
+          speakerId={speakerId}
+          filteredOutCount={memoryEvent?.payload.filteredOutCount}
+        />
       </section>
 
       <section>
