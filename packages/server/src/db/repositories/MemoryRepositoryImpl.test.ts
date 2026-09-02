@@ -41,9 +41,25 @@ describe('MemoryRepositoryImpl', () => {
     await setupWithRealCharacterDef();
     const repo = new MemoryRepositoryImpl(db);
 
-    const results = await repo.getAllCandidates({ participants: ['char_a'] });
+    const results = await repo.getAllCandidates({
+      ownerId: 'char_a',
+      participants: ['char_a'],
+    });
     expect(results.length).toBeGreaterThan(0);
     expect(results.every((m) => m.participants.includes('char_a'))).toBe(true);
+  });
+
+  it('Issue #9: getAllCandidatesはownerIdが一致しない記憶をpreset記憶から除外する', async () => {
+    await setupWithRealCharacterDef();
+    const repo = new MemoryRepositoryImpl(db);
+
+    // char_bが参加者に含まれていても、owner違い（char_a視点ではない記憶）は
+    // char_a向けの候補に混ざってはいけない（Issue #9）。
+    const results = await repo.getAllCandidates({
+      ownerId: 'char_a',
+      participants: ['char_b'],
+    });
+    expect(results.every((m) => m.owner === 'char_a')).toBe(true);
   });
 
   it('意味検索: getEmbeddingはsaveEmbeddingで保存したベクトルを復元できる', async () => {

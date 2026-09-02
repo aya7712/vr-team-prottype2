@@ -10,7 +10,7 @@ interface RecallRecord {
 }
 
 function matchesFilter(item: MemoryItem, filter: MemoryFilter): boolean {
-  if (filter.ownerId && item.owner !== filter.ownerId) return false;
+  if (item.owner !== filter.ownerId) return false;
   if (filter.shareableOnly && !item.shareable) return false;
   if (filter.participants && !filter.participants.some((id) => item.participants.includes(id))) {
     return false;

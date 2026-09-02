@@ -238,6 +238,12 @@
   テスト: `exportConversationReport.ts`はスクリプト単体（レンダリング関数）のため既存の`npm test`（server）の対象外。`e2eConversation.ts`修正後、実際に`--db=<path>`指定でセッションが永続化されること、生成したsqliteファイルから`exportConversationReport.js`でレポートが生成できることを手動実行で確認した。
   **実施内容（対応済み）**: 上記の通り実装・動作確認済み。自動化フロー自体のオーケストレーション（案出しエージェント／実装エージェントのプロンプト）は`doc/agent-prompts/`配下に追加（`packages/`配下ではないため本trailerの対象外）。
 
+---
+
+- [x] **T43. Memory Retrieverに他人視点の記憶（owner違い）が混入する問題の修正（Issue #9）**
+  2026-09-02、Issue #9対応。`MemoryRetriever.retrieve()`（`packages/engine/src/memory/MemoryRetriever.ts`）は`repo.getAllCandidates({ participants: [query.speakerId] })`のみを呼んでおり、`MemoryFilter.ownerId`（`MemoryRepositoryImpl`/`InMemoryMemoryRepository`双方に既存実装あり）を一度も渡していなかった。`participants`は「その出来事に誰が関わったか」を表すだけで「誰の視点で書かれた記憶か（`owner`）」は表さないため、共有記憶（例: `mem_b_0001`、owner: char_b, participants: [char_a, char_b]）が話者char_aの発話材料候補に混入していた。
+  **実施内容（対応済み）**: (1) `MemoryRetriever.retrieve()`が`getAllCandidates`に`ownerId: query.speakerId`を必ず渡すよう修正。(2) `MemoryFilter.ownerId`を`ownerId?: string`から`ownerId: string`（必須）に変更し、`MemoryRepositoryImpl.getAllCandidates`/`InMemoryMemoryRepository`（`matchesFilter`）のガード（`if (filter.ownerId && ...)`）も無条件の比較に変更、呼び出し側がownerId指定を忘れられない型にした。呼び出し元は本番コードでは`MemoryRetriever`のみだったため影響範囲は限定的。(3) `MemoryRetriever.test.ts`/`InMemoryMemoryRepository.test.ts`/`MemoryRepositoryImpl.test.ts`に、owner違いの共有記憶が除外されることを確認する回帰テストを追加し、既存テストの`getAllCandidates`呼び出しに`ownerId`を補った。(4) `class-design.md`（6章`MemoryFilter`）・`data-design.md`（6.3節）を型変更・owner/participants関係の説明に合わせて更新。
+
 ## 未着手事項の追加について
 
 新たに必要なTODOに気づいた場合は、該当フェーズの末尾に追記してから着手する（既存の番号は変更しない。新規は次の番号を採番する）。大きく設計を変える必要が生じた場合は、実装を進める前にユーザーに確認する。

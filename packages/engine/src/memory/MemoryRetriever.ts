@@ -32,8 +32,13 @@ export class MemoryRetriever {
   ) {}
 
   async retrieve(query: MemoryQuery): Promise<MemoryItem[]> {
-    // 6.3: participantsに話者が含まれる記憶のみが自己記憶/共有記憶の候補になる。
+    // 6.3: 記憶はowner（記憶の視点の持ち主）ごとに別個体として保持される
+    // （例: 同じ出来事でもmem_a_0001とmem_b_0001は別レコード）。
+    // ownerIdを話者に固定することで、他人視点の記憶（Issue #9）が
+    // クエリの時点で候補から除外される。participantsは自己記憶/共有記憶の
+    // 判定（話者が関与した記憶か）に引き続き使う。
     const speakerCandidates = await this.repo.getAllCandidates({
+      ownerId: query.speakerId,
       participants: [query.speakerId],
     });
 
