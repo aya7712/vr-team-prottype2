@@ -214,7 +214,7 @@ packages/engine/prompts/
 - 環境変数 `TOGETHER_API_KEY` をローカルの `.env`（`.gitignore`対象）で管理する。**このプロトタイプの開発環境（WSL2）では `TOGETHER_API_KEY` はOS環境変数として既に設定済み**であり、`.env`に値を書かなくても`process.env.TOGETHER_API_KEY`から取得できる。実装は`.env`の存在有無に関わらず、まずOS環境変数を参照する（`dotenv`等で読み込む場合も、既存のOS環境変数を上書きしない設定にする）。他の環境（CI等）に持ち出す場合のために`.env.example`には`TOGETHER_API_KEY=`のキー名のみ記載し、値は書かない。
 - モデルIDを環境変数 `TOGETHER_MODEL`（既定値 `google/gemma-3n-E4B-it`）で切り替え可能にする。
 - 呼び出しは `packages/engine/src/llm/togetherClient.ts` に集約し、Together AI REST API (`POST https://api.together.xyz/v1/chat/completions` 相当) を `fetch` で直接呼び出す薄いラッパーとする（LangChain等は使用しない）。
-- リトライ・タイムアウトはプロトタイプのため最小限とする（1回リトライ、60秒タイムアウト、リトライ前5秒待機。当初10秒タイムアウト・待機なしとしていたが、T19のE2E確認で一部モデル（例: google/gemma-4-31B-it）の応答が14〜38秒程度と不安定・低速であること、およびTogether AI側の一時的な500エラーが連続し待機なしのリトライでは回復を待てないことが判明したため、60秒タイムアウト・5秒待機に変更した）。
+- リトライ・タイムアウトはプロトタイプのため最小限とする（1回リトライ、180秒タイムアウト、リトライ前5秒待機。当初10秒タイムアウト・待機なしとしていたが、T19のE2E確認で一部モデル（例: google/gemma-4-31B-it）の応答が14〜38秒程度と不安定・低速であること、およびTogether AI側の一時的な500エラーが連続し待機なしのリトライでは回復を待てないことが判明したため、60秒タイムアウト・5秒待機に変更した。さらにtone_sample追加後のE2E確認で、google/gemma-4-31B-it（reasoning出力を伴うdenseモデルで約35 tokens/秒と構造的に低速）が本番相当の長いプロンプトで60秒を安定して超過することが判明したため、180秒タイムアウトに再変更した）。
 
 ## 10. ローカル起動手順（想定）
 

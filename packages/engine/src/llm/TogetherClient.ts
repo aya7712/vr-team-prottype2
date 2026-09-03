@@ -3,8 +3,10 @@ import type { LlmClient } from './LlmClient.js';
 const ENDPOINT = 'https://api.together.xyz/v1/chat/completions';
 // architecture.md 9章は「例：1回リトライ、10秒タイムアウト」としていたが、T19のE2E確認で
 // 一部モデル（例: google/gemma-4-31B-it）の応答が14〜38秒程度と不安定・低速であることが
-// 判明したため60秒に延長した。
-const TIMEOUT_MS = 60_000;
+// 判明したため60秒に延長した。さらにtone_sample追加後のE2E確認で、google/gemma-4-31B-it
+// （reasoning出力を伴うdenseモデルで約35 tokens/秒と構造的に低速）が本番相当の長いプロンプトで
+// 60秒を安定して超過することが判明したため、180秒に再延長した。
+const TIMEOUT_MS = 180_000;
 const MAX_RETRIES = 1;
 // T19の50ターンE2Eで、Together AI側の一時的な500エラーが連続して発生し、
 // リトライ間隔なしでは1回のリトライも同じ理由で失敗するケースが確認されたため、
