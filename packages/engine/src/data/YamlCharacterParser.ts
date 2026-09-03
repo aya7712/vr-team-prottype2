@@ -79,6 +79,9 @@ export class YamlCharacterParser {
       firstPerson: optionalString(doc, 'first_person'),
       personality: requireString(doc, 'personality', filePath),
       toneSample: optionalString(doc, 'tone_sample'),
+      // CharacterDefLoader.loadAll()がmemoryPresets読み込み後に上書きするプレースホルダー
+      // （YamlCharacterParserはyamlのみを見るため、この時点ではmemory側の情報を持たない）。
+      toneExemplars: [],
       vocabulary: optionalStringArray(doc, 'vocabulary'),
       ngTopics: optionalStringArray(doc, 'ng_topics'),
       relationships: parseRelationships(doc, id, filePath),

@@ -2,6 +2,8 @@
 
 -- 5.1 キャッシュ系（character_defの取り込み結果、起動時に洗い替え）
 
+-- tone_exemplars_json（Issue #5コメント案1）はmigrate.tsのマイグレーション（version 3）で
+-- 追加される（過去互換のためCREATE TABLE自体には含めない、initial_topicと同様の運用）。
 CREATE TABLE IF NOT EXISTS characters_cache (
   id              TEXT PRIMARY KEY,
   name            TEXT NOT NULL,

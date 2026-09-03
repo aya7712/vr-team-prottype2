@@ -296,10 +296,17 @@ export class ConversationManager {
       .map((u) => `${this.characterDefs.get(u.speakerId)?.name ?? u.speakerId}: ${u.utterance}`)
       .join('\n');
 
+    // 1行の要約的なtoneSampleに加え、話者本人の記憶（memory/<owner>/*.md）から抽出した
+    // 口調実例を複数行で提示する（Issue #5「口調間違い」コメント案1、ToneExemplarSelector参照）。
+    const toneExemplars = speakerDef.toneExemplars.length
+      ? speakerDef.toneExemplars.map((exemplar) => `- ${exemplar}`).join('\n')
+      : '(なし)';
+
     return this.promptBuilder.build('utterance/base', {
       characterName: speakerDef.name,
       personality: speakerDef.personality,
       toneSample: speakerDef.toneSample ?? '',
+      toneExemplars,
       firstPerson: speakerDef.firstPerson ?? '',
       emotion: characterState.emotion.label,
       speakingStyle: `敬語レベル${characterState.speakingStyle.honorificLevel.toFixed(1)}/距離感${characterState.speakingStyle.distance.toFixed(1)}`,

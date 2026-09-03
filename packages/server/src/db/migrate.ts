@@ -30,6 +30,16 @@ const MIGRATIONS: { version: number; apply: (db: Database.Database) => void }[] 
       db.exec('ALTER TABLE sessions DROP COLUMN scenario_json');
     },
   },
+  {
+    version: 3,
+    apply: (db) => {
+      // Issue #5コメント案1対応: 話者本人の記憶（memory/<owner>/*.md）から抽出した
+      // 口調実例（ToneExemplarSelector出力）をキャッシュする列を追加する。
+      // NULL許容（NOT NULL制約なし）とし、旧データの再取り込み前でもNULL→空配列に
+      // フォールバックできるようにする（CharacterCacheRepository.findByIds参照）。
+      db.exec('ALTER TABLE characters_cache ADD COLUMN tone_exemplars_json TEXT');
+    },
+  },
 ];
 
 function getSchemaVersion(db: Database.Database): number {

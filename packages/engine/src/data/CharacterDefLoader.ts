@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import type { MemoryItem } from '../types/memory.js';
 import { YamlCharacterParser } from './YamlCharacterParser.js';
 import { MarkdownMemoryParser } from './MarkdownMemoryParser.js';
+import { ToneExemplarSelector } from './ToneExemplarSelector.js';
 import type { CharacterDefRecord, SubCharacterRecord } from './types.js';
 
 async function listYamlFiles(dirPath: string): Promise<string[]> {
@@ -41,6 +42,7 @@ export class CharacterDefLoader {
     private readonly basePath: string,
     private readonly yamlParser: YamlCharacterParser = new YamlCharacterParser(),
     private readonly memoryParser: MarkdownMemoryParser = new MarkdownMemoryParser(),
+    private readonly toneExemplarSelector: ToneExemplarSelector = new ToneExemplarSelector(),
   ) {}
 
   async loadAll(): Promise<{
@@ -54,7 +56,14 @@ export class CharacterDefLoader {
       this.loadMemoryPresets(),
     ]);
 
-    return { characters, subCharacters, memoryPresets };
+    // toneExemplarsはmemoryPresets（同じPromise.all内で並行読み込み）に依存するため、
+    // 3つの読み込みが揃ってから付与する（Issue #5コメント案1対応、ToneExemplarSelector参照）。
+    const charactersWithToneExemplars = characters.map((character) => ({
+      ...character,
+      toneExemplars: this.toneExemplarSelector.select(memoryPresets, character.id),
+    }));
+
+    return { characters: charactersWithToneExemplars, subCharacters, memoryPresets };
   }
 
   private async loadCharacters(): Promise<CharacterDefRecord[]> {

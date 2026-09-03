@@ -100,12 +100,63 @@ describe('migrate', () => {
       'llm_json',
       'raw_yaml_path',
       'loaded_at',
+      // ALTER TABLE ADD COLUMN（migrate.ts version 3）で追加されるため末尾に付く。
+      'tone_exemplars_json',
     ]);
 
     const idColumn = getColumns(db, 'characters_cache').find((c) => c.name === 'id');
     expect(idColumn?.pk).toBe(1);
     const nameColumn = getColumns(db, 'characters_cache').find((c) => c.name === 'name');
     expect(nameColumn?.notnull).toBe(1);
+  });
+
+  it('tone_exemplars_json追加前の旧スキーマDBに適用してもデータが失われず、カラムが追加される', () => {
+    db = new Database(':memory:');
+    // schema.sqlのCREATE TABLE定義（tone_exemplars_json列を含まない）だけを直接実行し、
+    // version 3マイグレーション未適用の「旧スキーマ」状態を再現する（migrate()を通さない）。
+    db.exec(`
+      CREATE TABLE characters_cache (
+        id              TEXT PRIMARY KEY,
+        name            TEXT NOT NULL,
+        furigana        TEXT,
+        color           TEXT NOT NULL,
+        age             INTEGER,
+        gender          TEXT,
+        first_person    TEXT,
+        personality     TEXT,
+        tone_sample     TEXT,
+        vocabulary_json TEXT,
+        ng_topics_json  TEXT,
+        unit_context_json TEXT,
+        llm_json        TEXT,
+        raw_yaml_path   TEXT NOT NULL,
+        loaded_at       TEXT NOT NULL
+      );
+    `);
+    db.prepare(
+      `INSERT INTO characters_cache
+        (id, name, color, raw_yaml_path, loaded_at)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run('char_a', '宇良', '#FFC20E', 'char_a.yaml', '2026-01-01T00:00:00.000Z');
+    db.pragma('user_version = 2');
+
+    migrate(db);
+
+    const columns = getColumns(db, 'characters_cache').map((c) => c.name);
+    expect(columns).toContain('tone_exemplars_json');
+    const row = db.prepare('SELECT * FROM characters_cache WHERE id = ?').get('char_a') as {
+      id: string;
+      name: string;
+      tone_exemplars_json: string | null;
+    };
+    expect(row.id).toBe('char_a');
+    expect(row.name).toBe('宇良');
+    // 旧データはtone_exemplars_json未設定のままNULLになる（CharacterCacheRepository側で
+    // 空配列にフォールバックする。次回のsyncCharactersで実データに置き換わる）。
+    expect(row.tone_exemplars_json).toBeNull();
+
+    // 2回目の適用でも既に追加済みのカラムに対してALTER TABLEを再実行せず例外を投げない。
+    expect(() => migrate(db)).not.toThrow();
   });
 
   it('turnsが複合主キー(session_id, turn_no)を持つ', () => {

@@ -500,7 +500,7 @@ export class PromptBuilder {
 
 | ファイル | 用途 | プレースホルダー |
 |---|---|---|
-| `utterance/base.md` | セリフ生成の基本テンプレート（F7.1） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{emotion}}`, `{{speakingStyle}}`, `{{targetName}}`, `{{addressTerm}}`, `{{dialogueAct}}`, `{{retrievedMemory}}`, `{{recentDialogue}}` |
+| `utterance/base.md` | セリフ生成の基本テンプレート（F7.1） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{toneExemplars}}`（Issue #5「口調間違い」対応で追加。話者本人の記憶からの口調実例、複数行）, `{{firstPerson}}`, `{{emotion}}`, `{{speakingStyle}}`, `{{targetName}}`, `{{addressTerm}}`, `{{dialogueAct}}`, `{{retrievedMemory}}`, `{{recentDialogue}}` |
 | `utterance/with_shared_memory.md` | 共有記憶を参照させたい場合に`base.md`の出力へ追加で組み合わせるテンプレート | `{{baseInstruction}}`, `{{targetName}}`, `{{characterName}}`, `{{sharedMemory}}` |
 
 T10時点では`utterance/`配下のみ作成した。`dialogueAct/candidate_selection.md`（F5.5、小型LLMによるAct候補提案の任意機能）はF5.5自体が未実装のため作成していない。
@@ -536,6 +536,7 @@ data/
 ├── CharacterDefLoader.ts     # design/main, design/sub, memory/**/*.md を起動時に読み込む
 ├── YamlCharacterParser.ts
 ├── MarkdownMemoryParser.ts     # YAML frontmatter + 本文パース
+├── ToneExemplarSelector.ts     # 話者本人のmemoryPresets.bodyから口調実例を抽出（Issue #5対応）
 └── types.ts
 ```
 
@@ -552,6 +553,18 @@ export class CharacterDefLoader {
 ```
 
 読み込んだ結果は`server`層の`db`が`characters_cache` / `memory_preset_cache`テーブルへ書き込む（Loader自体はファイルパースのみを担当し、DBを知らない）。
+
+### 12.1 `ToneExemplarSelector`（Issue #5「口調間違い」対応）
+
+Issueコメントの案1「思い出ファイルから口調サンプルを抽出する」対応。`CharacterDefLoader.loadAll()`が
+`memoryPresets`読み込み後、`ToneExemplarSelector.select(memoryPresets, characterId)`で
+`owner === characterId`の記憶本文（`body`）から代表的な一文を数件抜粋し、`CharacterDefRecord.toneExemplars: string[]`
+として各キャラクターに付与する。`characters_cache.tone_exemplars_json`（`migrate.ts` version 3で追加）へ永続化され、
+`ConversationManager.buildPrompt`が`utterance/base.md`の`{{toneExemplars}}`へ渡す（10.1章参照）。
+
+コメント原文は抽出結果を`character_def`リポジトリの`design/main`へ書き込むことを求めているが、
+`data-design.md` 7章・`implementation-rules.md` 9章の「`character_def`リポジトリのファイルは本プロジェクトから変更しない」
+方針を優先し、`character_def`側は変更せず`CharacterDefLoader`が実行時に読み込み専用のまま抽出する形に読み替えている。
 
 ## 13. `packages/server/` の構成
 

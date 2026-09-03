@@ -20,6 +20,7 @@ function makeCharacter(
     firstPerson: null,
     personality: 'テスト',
     toneSample: null,
+    toneExemplars: [],
     vocabulary: [],
     ngTopics: [],
     relationships,
