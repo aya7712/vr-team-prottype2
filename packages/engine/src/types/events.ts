@@ -48,9 +48,18 @@ export interface MemoryLayerPayload {
   retrieved: MemoryItem[];
 }
 
+// Issue #5 plan-h: 発話生成を「内容決定」→「口調整形」の2段階に分離した。
+// `prompt`/`rawOutput`は既存の消費側（UI/レポート）との後方互換のため、
+// 最終的に採用されるセリフを生成した口調整形（stage2）側の値を指す。
+// `contentStage`に内容決定（stage1）側のプロンプト・出力・抽出結果を別途持たせる。
 export interface LlmLayerPayload {
   prompt: string;
   rawOutput: string;
+  contentStage: {
+    prompt: string;
+    rawOutput: string;
+    intent: string;
+  };
 }
 
 export type TurnCompletePayload = TurnResult;

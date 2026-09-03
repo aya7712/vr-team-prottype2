@@ -65,7 +65,29 @@ export function LayerInspector({ wsUrl }: LayerInspectorProps) {
       <section>
         <h2 style={{ fontSize: 14 }}>LLM</h2>
         {llmEvent ? (
-          <PromptViewer prompt={llmEvent.payload.prompt} rawOutput={llmEvent.payload.rawOutput} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+            {/* Issue #5 plan-h: 発話生成は「内容決定（stage1）」→「口調整形（stage2）」の
+                2段階。stage2に他キャラクターの情報が混入していないかをここでも目視確認
+                できるよう、両段を分けて表示する。 */}
+            <div>
+              <h3 style={{ fontSize: 12, color: 'var(--color-text-muted)', margin: '0 0 4px' }}>
+                Stage 1: 内容決定
+              </h3>
+              <PromptViewer
+                prompt={llmEvent.payload.contentStage.prompt}
+                rawOutput={llmEvent.payload.contentStage.rawOutput}
+              />
+            </div>
+            <div>
+              <h3 style={{ fontSize: 12, color: 'var(--color-text-muted)', margin: '0 0 4px' }}>
+                Stage 2: 口調整形（他キャラクターの情報は含まれない）
+              </h3>
+              <PromptViewer
+                prompt={llmEvent.payload.prompt}
+                rawOutput={llmEvent.payload.rawOutput}
+              />
+            </div>
+          </div>
         ) : (
           <p style={{ color: 'var(--color-text-muted)' }}>まだデータがありません。</p>
         )}

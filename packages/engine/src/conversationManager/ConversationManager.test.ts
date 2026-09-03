@@ -76,8 +76,18 @@ function makeCharacterBrain(id: string): CharacterBrain {
   );
 }
 
-function makeFakeTemplateLoader(templateContent: string): PromptTemplateLoader {
-  return { load: vi.fn().mockReturnValue(templateContent) } as unknown as PromptTemplateLoader;
+// Issue #5 plan-h: content_intent/tone_styleでプレースホルダーの構成が異なる
+// （tone_styleはtopicLabel等の話者以外の情報を持たない）ため、テンプレート名に応じて
+// 返す内容を切り替える。
+function makeFakeTemplateLoader(): PromptTemplateLoader {
+  return {
+    load: vi.fn((templateName: string) => {
+      if (templateName === 'utterance/tone_style') {
+        return '{{characterName}}が{{contentIntent}}を{{dialogueAct}}する。';
+      }
+      return '{{characterName}}が{{topicLabel}}について{{dialogueAct}}する。';
+    }),
+  } as unknown as PromptTemplateLoader;
 }
 
 function makeConversationManager(
@@ -111,9 +121,7 @@ function makeConversationManager(
   const memoryRepo = new InMemoryMemoryRepository([]);
   const memoryRetriever = new MemoryRetriever(memoryRepo);
 
-  const templateLoader = makeFakeTemplateLoader(
-    '{{characterName}}が{{topicLabel}}について{{dialogueAct}}する。',
-  );
+  const templateLoader = makeFakeTemplateLoader();
   const promptBuilder = new PromptBuilder(templateLoader);
 
   let callIndex = 0;
@@ -345,15 +353,121 @@ describe('ConversationManager', () => {
     const first = await manager.runTurn(sessionState);
     const second = await manager.runTurn(sessionState);
 
+    // Issue #5 plan-h: 1ターンにつき内容決定（stage1）・口調整形（stage2）の2回
+    // llmClient.completeが呼ばれる。どちらも話者本人のmodel/temperatureを使う。
     expect(first.speakerId).toBe('char_a');
     expect(llmClient.complete).toHaveBeenNthCalledWith(1, expect.any(String), {
       model: 'model-a',
       temperature: 0.3,
     });
-    expect(second.speakerId).toBe('char_b');
     expect(llmClient.complete).toHaveBeenNthCalledWith(2, expect.any(String), {
+      model: 'model-a',
+      temperature: 0.3,
+    });
+    expect(second.speakerId).toBe('char_b');
+    expect(llmClient.complete).toHaveBeenNthCalledWith(3, expect.any(String), {
       model: 'model-b',
       temperature: 0.9,
     });
+    expect(llmClient.complete).toHaveBeenNthCalledWith(4, expect.any(String), {
+      model: 'model-b',
+      temperature: 0.9,
+    });
+  });
+
+  // Issue #5 plan-h: 口調整形（stage2）に他キャラクターの情報を一切渡さないという
+  // PR #8レビュー指摘由来の制約が守られていることを回帰防止として確認する。
+  it('口調整形（stage2）のプロンプトにrecentDialogueや相手キャラクターのtoneSampleが含まれない', async () => {
+    const relationshipGraph = new RelationshipGraph();
+    relationshipGraph.addEdge({
+      characterId: 'char_a',
+      targetCharacterId: 'char_b',
+      type: '幼馴染',
+      trust: 0.6,
+      intimacy: 0.6,
+      respect: 0.5,
+      story: [],
+    });
+    const relationshipManager = new RelationshipManager(relationshipGraph, [
+      { characterId: 'char_a', targetCharacterId: 'char_b', addressTerm: '楽' },
+      { characterId: 'char_b', targetCharacterId: 'char_a', addressTerm: '宇良' },
+    ]);
+    const catalog = new DialogueActCatalog();
+    const dialoguePlanner = new DialoguePlanner(
+      catalog,
+      new ScoreCalculator(catalog),
+      new SoftmaxSelector(),
+      new SpeechExpectationCalculator(),
+    );
+    const memoryRetriever = new MemoryRetriever(new InMemoryMemoryRepository([]));
+
+    // ステージごとに実テンプレートに近い内容（他キャラの発言・口調サンプルを含む文言）を
+    // 使ったテンプレートを用意し、口調整形（stage2）側の実際のプロンプト文字列に
+    // それらが混入していないことを検証する。
+    const OTHER_CHARACTER_TONE_LEAK_MARKER = '桜花トーンサンプル：うちはこう話すんやで〜';
+    const templateLoader = {
+      load: vi.fn((templateName: string) => {
+        if (templateName === 'utterance/content_intent') {
+          return '内容決定: {{characterName}}/{{recentDialogue}}/{{topicLabel}}/{{dialogueAct}}';
+        }
+        return '口調整形: {{characterName}}/{{toneSample}}/{{contentIntent}}/{{dialogueAct}}';
+      }),
+    } as unknown as PromptTemplateLoader;
+    const promptBuilder = new PromptBuilder(templateLoader);
+
+    const capturedPrompts: string[] = [];
+    const llmClient: LlmClient = {
+      complete: vi.fn().mockImplementation(async (prompt: string) => {
+        capturedPrompts.push(prompt);
+        return '「そうだねー」';
+      }),
+    };
+
+    const characterDefs = new Map<string, CharacterDefRecord>([
+      ['char_a', makeCharacterDef('char_a', '宇良')],
+      [
+        'char_b',
+        {
+          ...makeCharacterDef('char_b', '楽'),
+          toneSample: OTHER_CHARACTER_TONE_LEAK_MARKER,
+        },
+      ],
+    ]);
+    const characterBrains = new Map([
+      ['char_a', makeCharacterBrain('char_a')],
+      ['char_b', makeCharacterBrain('char_b')],
+    ]);
+
+    const manager = new ConversationManager(
+      new TopicClassifier(),
+      new TopicParameterUpdater(),
+      new TopicContinuationScorer(),
+      relationshipManager,
+      characterBrains,
+      dialoguePlanner,
+      memoryRetriever,
+      promptBuilder,
+      llmClient,
+      new OutputParser(),
+      characterDefs,
+    );
+
+    const sessionState = makeSessionState();
+    sessionState.recentUtterances = [
+      { speakerId: 'char_b', utterance: OTHER_CHARACTER_TONE_LEAK_MARKER, turnNo: 1 },
+    ];
+    sessionState.previousSpeakerId = 'char_b';
+    sessionState.turnNo = 1;
+
+    // char_a→char_bの順で話者選択されるため、char_bが直前話者だとchar_aが次に選ばれる。
+    await manager.runTurn(sessionState);
+
+    expect(capturedPrompts).toHaveLength(2);
+    const [contentPrompt, toneStylePrompt] = capturedPrompts;
+    // stage1（内容決定）は話の流れを踏まえるためrecentDialogueを含んでよい。
+    expect(contentPrompt).toContain(OTHER_CHARACTER_TONE_LEAK_MARKER);
+    // stage2（口調整形）には話者(char_a)以外の情報が一切含まれてはいけない。
+    expect(toneStylePrompt).not.toContain(OTHER_CHARACTER_TONE_LEAK_MARKER);
+    expect(toneStylePrompt).not.toContain('楽');
   });
 });

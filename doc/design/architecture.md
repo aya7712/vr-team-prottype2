@@ -150,10 +150,15 @@ Dialogue Planner            ── イベント発行 ──► WebSocket ──
 Memory Retriever              ── イベント発行 ──► WebSocket ──► UI(F9.3)
       │ 関連する自己記憶/共有記憶を検索
       ▼
-Prompt Builder（テキストテンプレート読込 + 変数埋め込み）
+Prompt Builder（content_intent.mdへ変数埋め込み）
       ▼
-Together AI Client（google/gemma-3n-E4B-it 等）
-      │ セリフ生成                        ── イベント発行 ──► WebSocket ──► UI(F9.1/F9.3)
+Together AI Client（内容決定LLM: 話したい内容の要旨だけを生成、口調は指示しない）
+      ▼
+Prompt Builder（tone_style.mdへ変数埋め込み。話者本人のtoneSample等のみ、
+      │           他キャラクターの発話・口調情報は一切渡さない）
+      ▼
+Together AI Client（口調整形LLM: 話者本人の口調のみで1行のセリフに整形）
+      │ セリフ確定                        ── イベント発行 ──► WebSocket ──► UI(F9.1/F9.3)
       ▼
 Turn Logger（SQLiteへ書き込み: F8.1）
       ▼

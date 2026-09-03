@@ -28,6 +28,7 @@ import {
   EndConditionEvaluator,
   TopicBranchMerger,
   ConversationManager,
+  ToneStylist,
 } from '@prottype2/engine';
 import type {
   LlmClient,
@@ -201,6 +202,7 @@ export class TurnOrchestrator {
 
     const memoryRetriever = new MemoryRetriever(this.memoryRepository, this.embeddingService);
     const promptBuilder = new PromptBuilder(new PromptTemplateLoader(resolveEnginePromptsPath()));
+    const outputParser = new OutputParser();
 
     return new ConversationManager(
       new TopicClassifier(this.embeddingService),
@@ -212,13 +214,15 @@ export class TurnOrchestrator {
       memoryRetriever,
       promptBuilder,
       this.llmClient,
-      new OutputParser(),
+      outputParser,
       characterDefMap,
       new SpeakerSelector(relationshipManager),
       new EndConditionEvaluator(),
       new TopicBranchMerger(),
       new RelationshipUpdater(),
       this.eventBus,
+      // Issue #5 plan-h: 発話生成の「口調整形」段だけを担う（他キャラクター情報は渡さない）。
+      new ToneStylist(promptBuilder, this.llmClient, outputParser),
     );
   }
 

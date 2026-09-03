@@ -49,7 +49,15 @@ const turnDetail = {
       sessionId: 's1',
       turnNo: 1,
       layer: 'llm',
-      payload: { prompt: 'これはプロンプト', rawOutput: 'これは生出力' },
+      payload: {
+        prompt: 'これはプロンプト',
+        rawOutput: 'これは生出力',
+        contentStage: {
+          prompt: 'これは内容決定プロンプト',
+          rawOutput: 'これは内容決定の生出力',
+          intent: 'これは内容決定の生出力',
+        },
+      },
       createdAt: '2026-08-13T00:00:00.000Z',
     },
   ],

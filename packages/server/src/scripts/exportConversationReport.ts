@@ -113,9 +113,22 @@ function renderMemory(payload: MemoryLayerPayload | undefined): string {
     </ul>`;
 }
 
+// Issue #5 plan-h: 発話生成は「内容決定（stage1）」→「口調整形（stage2）」の2段階になった
+// （`ConversationManager`）。口調整形（stage2）に他キャラクターの情報が本当に含まれて
+// いないかを目視確認できるよう、両段のプロンプト・出力を分けて表示する。
 function renderLlm(payload: LlmLayerPayload | undefined): string {
   if (!payload) return '<p class="muted">データがありません。</p>';
+  const contentStage = payload.contentStage;
+  const contentStageHtml = contentStage
+    ? `
+    <h4>Stage 1: 内容決定</h4>
+    <details><summary>送信プロンプト全文</summary><pre class="mono">${escapeHtml(contentStage.prompt)}</pre></details>
+    <details><summary>LLM生出力</summary><pre class="mono">${escapeHtml(contentStage.rawOutput)}</pre></details>
+    <p class="content-intent">抽出された内容: ${escapeHtml(contentStage.intent)}</p>`
+    : '<p class="muted">Stage 1のデータがありません（旧バージョンのログ）。</p>';
   return `
+    ${contentStageHtml}
+    <h4>Stage 2: 口調整形（他キャラクターの情報は含まれない）</h4>
     <details><summary>送信プロンプト全文</summary><pre class="mono">${escapeHtml(payload.prompt)}</pre></details>
     <details><summary>LLM生出力</summary><pre class="mono">${escapeHtml(payload.rawOutput)}</pre></details>`;
 }
@@ -177,6 +190,19 @@ export function renderConversationReportHtml(params: {
 <title>${escapeHtml(params.title)}</title>
 <style>
 ${tokensCss}
+/* tokens.cssは@media(prefers-color-scheme)のみでダークテーマを切り替える。このレポートを
+   Claudeのartifactとして公開した場合、ビューア側が明示的にdata-theme="dark"を
+   ルート要素へ付与することがあるため、その場合分もtokens.cssと同じ配色で追従させる。 */
+:root[data-theme='dark'] {
+  --color-bg: #1a1a1e;
+  --color-surface: #232327;
+  --color-border: #3a3a40;
+  --color-text: #f0f0f2;
+  --color-text-muted: #a2a2a8;
+  --color-accent: #6ea0ff;
+  --data-scale-low: #123a63;
+  --data-scale-high: #8fc2ff;
+}
 .report-header { padding: var(--space-3); border-bottom: 1px solid var(--color-border); }
 .report-header h1 { font-size: 18px; margin: 0 0 4px; }
 .report-header p { margin: 0; color: var(--color-text-muted); font-size: 12px; }
@@ -192,6 +218,8 @@ ${tokensCss}
 .layer-details summary { cursor: pointer; font-size: 12px; color: var(--color-accent); margin-top: 4px; }
 .layer-details section { margin: var(--space-1) 0; }
 .layer-details h3 { font-size: 12px; margin: 0 0 4px; color: var(--color-text-muted); }
+.layer-details h4 { font-size: 11px; margin: var(--space-1) 0 2px; color: var(--color-text-muted); }
+.content-intent { font-size: 12px; margin: 2px 0 0; }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px var(--space-1); font-size: 12px; margin: 0; }
 .kv dt { color: var(--color-text-muted); }
 table.scores { border-collapse: collapse; font-size: 12px; width: 100%; }

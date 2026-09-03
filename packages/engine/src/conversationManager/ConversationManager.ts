@@ -4,6 +4,7 @@ import type { RelationshipManager } from '../relationship/RelationshipManager.js
 import { RelationshipUpdater } from '../relationship/RelationshipUpdater.js';
 import type { MemoryRetriever } from '../memory/MemoryRetriever.js';
 import type { PromptBuilder, LlmClient, OutputParser } from '../llm/index.js';
+import { ToneStylist } from '../llm/ToneStylist.js';
 import type { TopicClassifier } from '../topic/TopicClassifier.js';
 import type { TopicParameterUpdater } from '../topic/TopicParameterUpdater.js';
 import type { TopicContinuationScorer } from '../topic/TopicContinuationScorer.js';
@@ -44,6 +45,10 @@ const ACT_TO_TOPIC_EVENT: Partial<
  * - `characterDefs: Map<string, CharacterDefRecord>`（T04出力。CharacterState（F1）は
  *   キャラクター名等の静的情報を持たないため、プロンプト構築に必要な
  *   name/personality/toneSample/firstPerson/ngTopicsの参照用に追加した）
+ * - `toneStylist: ToneStylist`（Issue #5 plan-h。発話生成を「内容決定」→「口調整形」の
+ *   2段階に分離するにあたり追加。既存呼び出し元（`TurnOrchestrator`、テスト）の
+ *   引数位置を変えないよう`eventBus`の後ろに、`promptBuilder`/`llmClient`/`outputParser`
+ *   から自己構築するデフォルト値付きで追加した）
  */
 export class ConversationManager {
   constructor(
@@ -67,6 +72,11 @@ export class ConversationManager {
     // 全6ペアのtrust/intimacyが変化しないことから発覚したため、ここで配線する。
     private readonly relationshipUpdater: RelationshipUpdater = new RelationshipUpdater(),
     private readonly eventBus?: EngineEventBus,
+    private readonly toneStylist: ToneStylist = new ToneStylist(
+      promptBuilder,
+      llmClient,
+      outputParser,
+    ),
   ) {}
 
   async runTurn(sessionState: SessionState): Promise<TurnResult> {
@@ -142,9 +152,26 @@ export class ConversationManager {
     });
     this.eventBus?.emit('layer:memory', { retrieved: retrievedMemories });
 
-    const prompt = this.buildPrompt(
+    const speakerDef = this.characterDefs.get(speakerId);
+    const targetDef = this.characterDefs.get(targetId);
+    if (!speakerDef) {
+      throw new Error(`ConversationManager: CharacterDefRecordが見つかりません (${speakerId})`);
+    }
+    const speakerLlmConfig = speakerDef.llm ?? null;
+    const llmOptions = {
+      model: speakerLlmConfig?.model,
+      temperature: speakerLlmConfig?.temperature,
+    };
+
+    // Issue #5 plan-h: 発話生成を「内容決定」（何を話すか）→「口調整形」（どう話すか）の
+    // 2段階に分離する。1回のLLM呼び出しで両方を同時に決めていた旧実装では、
+    // プロンプト内のrecentDialogue（他キャラの直近発言）に口調が引っ張られやすいと
+    // Issueで指摘されたため、口調整形（stage2、ToneStylist）には話者本人の情報以外
+    // （recentDialogueや他キャラのtoneSample等）を一切渡さない構成にしている。
+    const contentPrompt = this.buildContentPrompt(
       sessionState,
-      speakerId,
+      speakerDef,
+      targetDef,
       targetId,
       act,
       characterState,
@@ -152,13 +179,36 @@ export class ConversationManager {
       retrievedMemories,
       topic,
     );
-    const speakerLlmConfig = this.characterDefs.get(speakerId)?.llm ?? null;
-    const rawOutput = await this.llmClient.complete(prompt, {
-      model: speakerLlmConfig?.model,
-      temperature: speakerLlmConfig?.temperature,
+    const contentRawOutput = await this.llmClient.complete(contentPrompt, llmOptions);
+    // OutputParser.extractUtteranceは元々セリフ本文抽出用だが、「先頭行を取り出し前後の
+    // 空白・囲み引用符を除去する」処理はcontent_intent.mdが要求する「日本語1文」の
+    // 出力抽出にもそのまま使えるため流用する。
+    const contentIntent = this.outputParser.extractUtterance(contentRawOutput);
+
+    const speakingStyle = `敬語レベル${characterState.speakingStyle.honorificLevel.toFixed(1)}/距離感${characterState.speakingStyle.distance.toFixed(1)}`;
+    const toneResult = await this.toneStylist.stylize(
+      {
+        contentIntent,
+        characterName: speakerDef.name,
+        personality: speakerDef.personality,
+        toneSample: speakerDef.toneSample ?? '',
+        firstPerson: speakerDef.firstPerson ?? '',
+        emotion: characterState.emotion.label,
+        speakingStyle,
+        dialogueAct: act,
+      },
+      llmOptions,
+    );
+    const utterance = toneResult.utterance;
+    this.eventBus?.emit('layer:llm', {
+      prompt: toneResult.prompt,
+      rawOutput: toneResult.rawOutput,
+      contentStage: {
+        prompt: contentPrompt,
+        rawOutput: contentRawOutput,
+        intent: contentIntent,
+      },
     });
-    const utterance = this.outputParser.extractUtterance(rawOutput);
-    this.eventBus?.emit('layer:llm', { prompt, rawOutput });
 
     const result: TurnResult = {
       sessionId: sessionState.sessionId,
@@ -275,9 +325,14 @@ export class ConversationManager {
     return topic;
   }
 
-  private buildPrompt(
+  // Issue #5 plan-h: 2段階生成パイプラインの前段（内容決定）。会話の流れ・DialogueAct・
+  // 関係性・話題から「話したい内容」だけを生成させるプロンプトを組み立てる。口調整形
+  // （ToneStylist）の入力とは異なり、こちらはrecentDialogue（他キャラの直近発言）を
+  // 引き続き参照する（「話の流れを踏まえて何を話すか」を決めるために必要なため）。
+  private buildContentPrompt(
     sessionState: SessionState,
-    speakerId: string,
+    speakerDef: CharacterDefRecord,
+    targetDef: CharacterDefRecord | undefined,
     targetId: string,
     act: DialogueAct,
     characterState: CharacterState,
@@ -285,24 +340,15 @@ export class ConversationManager {
     retrievedMemories: MemoryItem[],
     topic: Topic,
   ): string {
-    const speakerDef = this.characterDefs.get(speakerId);
-    const targetDef = this.characterDefs.get(targetId);
-    if (!speakerDef) {
-      throw new Error(`ConversationManager: CharacterDefRecordが見つかりません (${speakerId})`);
-    }
-
     const recentDialogue = sessionState.recentUtterances
       .slice(-3)
       .map((u) => `${this.characterDefs.get(u.speakerId)?.name ?? u.speakerId}: ${u.utterance}`)
       .join('\n');
 
-    return this.promptBuilder.build('utterance/base', {
+    return this.promptBuilder.build('utterance/content_intent', {
       characterName: speakerDef.name,
       personality: speakerDef.personality,
-      toneSample: speakerDef.toneSample ?? '',
-      firstPerson: speakerDef.firstPerson ?? '',
       emotion: characterState.emotion.label,
-      speakingStyle: `敬語レベル${characterState.speakingStyle.honorificLevel.toFixed(1)}/距離感${characterState.speakingStyle.distance.toFixed(1)}`,
       targetName: targetDef?.name ?? targetId,
       addressTerm: relationshipContext.addressTerm,
       dialogueAct: act,

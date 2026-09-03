@@ -431,6 +431,11 @@ export class ConversationManager {
     private speakerSelector: SpeakerSelector,     // 2人会話では常に相手を返す実装でよい
     private endConditionEvaluator: EndConditionEvaluator,
     private eventBus?: EngineEventBus,             // F8.3。T13で本実装。テスト時は省略可
+    private toneStylist: ToneStylist = new ToneStylist(promptBuilder, llmClient, outputParser),
+    // ↑ Issue #5 plan-h（T44相当）で追加。発話生成を「内容決定」→「口調整形」の2段階に分離し、
+    //   口調整形（ToneStylist、llm/ToneStylist.ts）にはrecentDialogueや他キャラクターの
+    //   toneSample等を一切渡さない構成にすることで、他キャラの口調に引っ張られる問題（Issue #5）
+    //   に対応した。既存呼び出し元の引数位置を変えないよう末尾にデフォルト値付きで追加している。
   ) {}
 
   // architecture.md 6章のシーケンスをそのまま実装するエントリポイント
@@ -467,7 +472,14 @@ llm/
 ├── EmbeddingClient.ts             # embeddings呼び出し（memory/EmbeddingServiceが利用、T15で追加）
 ├── PromptTemplateLoader.ts         # prompts/**/*.md の読み込み＋mtimeキャッシュ (F7.1a)
 ├── PromptBuilder.ts                  # テンプレート＋変数からプロンプト全文を構築 (F7.1)
-└── OutputParser.ts                     # セリフ本文抽出・簡易整合性チェック (F7.3)
+├── OutputParser.ts                     # セリフ本文抽出・簡易整合性チェック (F7.3)
+└── ToneStylist.ts                        # 2段階生成パイプラインの後段（Issue #5 plan-hで追加）。
+                                            # content_intent.mdの出力＋話者本人のtoneSample等
+                                            # のみを入力に取り、tone_style.mdで口調整形LLMを
+                                            # 呼ぶ。入力の型（ToneStylistInput）自体に
+                                            # recentDialogueや他キャラクターの情報を持たせて
+                                            # いないため、呼び出し元（ConversationManager）が
+                                            # 誤って混入させることを型レベルで防いでいる。
 ```
 
 ```typescript
@@ -490,14 +502,19 @@ export class PromptBuilder {
 
 `ConversationManager.runTurn`は発話生成時、発話者の`CharacterDefRecord.llm`（`data-design.md`のcharacters_cache由来、`{ provider, model, temperature } | null`）から`model`/`temperature`を取り出し、`llmClient.complete(prompt, { model, temperature })`として渡す。これによりキャラクターごとに異なるLLMモデル・temperatureで発話生成できる。`llm`が`null`（未指定）の場合は`model`/`temperature`とも`undefined`となり、`TogetherClient`側のデフォルト（コンストラクタの`model`、`temperature`は0.8）にフォールバックする。
 
+**Issue #5 plan-h（2段階生成パイプライン）**: `runTurn`はセリフ生成を1回のLLM呼び出しではなく2回に分けて行う。(1) `promptBuilder.build('utterance/content_intent', ...)`のプロンプトを`llmClient.complete`に渡し、「話したい内容の要旨」だけを生成させる（口調は一切指示しない）。(2) その出力を`ToneStylist.stylize()`に渡し、話者本人の`toneSample`等だけを使ってtone_style.mdのプロンプトで最終的な1行のセリフに整形させる。どちらの呼び出しも同じ話者の`model`/`temperature`を使う。2回目（`ToneStylist`）の入力には、他キャラクターの発話（`recentDialogue`）や他キャラクターの`toneSample`等を一切含めない（PR #8のレビュー指摘「別のキャラクターの情報を入れると口調に引っ張られるので入れないでください」への対応）。`layer:llm`イベント（`LlmLayerPayload`）は、トップレベルの`prompt`/`rawOutput`に後段（口調整形）の結果を、`contentStage`に前段（内容決定）のプロンプト・出力・抽出結果を持つ。
+
 ### 10.1 プロンプトテンプレート一覧（`packages/engine/prompts/`、implementation-rules.md 6章）
 
 | ファイル | 用途 | プレースホルダー |
 |---|---|---|
-| `utterance/base.md` | セリフ生成の基本テンプレート（F7.1） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{emotion}}`, `{{speakingStyle}}`, `{{targetName}}`, `{{addressTerm}}`, `{{dialogueAct}}`, `{{retrievedMemory}}`, `{{recentDialogue}}` |
-| `utterance/with_shared_memory.md` | 共有記憶を参照させたい場合に`base.md`の出力へ追加で組み合わせるテンプレート | `{{baseInstruction}}`, `{{targetName}}`, `{{characterName}}`, `{{sharedMemory}}` |
+| `utterance/content_intent.md` | 2段階生成パイプライン（Issue #5 plan-h）の前段。会話の流れ・DialogueAct・関係性・話題から「話したい内容」だけを生成させる（口調は一切指示しない） | `{{characterName}}`, `{{personality}}`, `{{emotion}}`, `{{targetName}}`, `{{addressTerm}}`, `{{dialogueAct}}`, `{{topicLabel}}`, `{{retrievedMemory}}`, `{{recentDialogue}}` |
+| `utterance/tone_style.md` | 2段階生成パイプラインの後段。`content_intent.md`が決めた内容を、話者本人のtoneSample等だけを使って口調に整形する。他キャラクターの発話・口調情報（`recentDialogue`、相手の名前等を含む）は一切渡さない（PR #8レビュー指摘対応） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{emotion}}`, `{{speakingStyle}}`, `{{dialogueAct}}`, `{{contentIntent}}` |
+| `utterance/with_shared_memory.md` | 共有記憶を参照させたい場合にセリフ生成の出力へ追加で組み合わせるテンプレート（T10時点で作成。呼び出し元のConversationManagerからは未配線） | `{{baseInstruction}}`, `{{targetName}}`, `{{characterName}}`, `{{sharedMemory}}` |
 
 T10時点では`utterance/`配下のみ作成した。`dialogueAct/candidate_selection.md`（F5.5、小型LLMによるAct候補提案の任意機能）はF5.5自体が未実装のため作成していない。
+
+Issue #5 plan-hで、単一テンプレートだった`utterance/base.md`を`content_intent.md`/`tone_style.md`の2つに分割・置き換えた（`base.md`は削除）。理由は「1回のLLM呼び出しで『何を話すか』と『どう話すか（口調）』を同時に決めていると、プロンプト内のrecentDialogue（他キャラの直近発言）に口調が引っ張られやすい」というIssueの指摘に対応するため。
 
 ## 11. F8: ログ・イベント（`packages/engine/src/logging/`）
 
