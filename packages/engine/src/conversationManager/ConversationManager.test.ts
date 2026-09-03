@@ -444,7 +444,10 @@ describe('ConversationManager', () => {
       });
     });
 
-    it('1発話目はpreviousSpeakerにnullを渡し、2発話目以降は直前の話者のプロフィールを渡す', async () => {
+    // PR #8レビュー対応: 他キャラクター（直前の話者）の口調プロフィールは審査materialに
+    // 一切含めない設計にしたため、ToneReviewer.reviewへの呼び出し引数にspeaker（話者本人）の
+    // 情報のみが渡り、他キャラクターの情報が含まれないことを確認する回帰防止テスト。
+    it('ToneReviewer.reviewの呼び出し引数に、話者本人の情報のみが渡り他キャラクターの情報は含まれない', async () => {
       const toneReviewer = {
         review: vi.fn().mockImplementation(
           async (input: { utterance: string }) =>
@@ -467,9 +470,11 @@ describe('ConversationManager', () => {
       await manager.runTurn(sessionState);
       await manager.runTurn(sessionState);
 
-      const calls = (toneReviewer.review as Mock).mock.calls as [{ previousSpeaker: unknown }][];
-      expect(calls[0][0].previousSpeaker).toBeNull();
-      expect(calls[1][0].previousSpeaker).toMatchObject({ name: expect.any(String) });
+      const calls = (toneReviewer.review as Mock).mock.calls as [Record<string, unknown>][];
+      for (const [input] of calls) {
+        expect(input).not.toHaveProperty('previousSpeaker');
+        expect(Object.keys(input).sort()).toEqual(['model', 'speaker', 'utterance'].sort());
+      }
     });
 
     // T43のE2E確認で発見した回帰防止テスト: ToneReviewerにmodelを渡さないと、

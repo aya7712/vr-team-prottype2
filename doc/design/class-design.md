@@ -497,7 +497,7 @@ export class PromptBuilder {
 |---|---|---|
 | `utterance/base.md` | セリフ生成の基本テンプレート（F7.1） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{emotion}}`, `{{speakingStyle}}`, `{{targetName}}`, `{{addressTerm}}`, `{{dialogueAct}}`, `{{retrievedMemory}}`, `{{recentDialogue}}` |
 | `utterance/with_shared_memory.md` | 共有記憶を参照させたい場合に`base.md`の出力へ追加で組み合わせるテンプレート | `{{baseInstruction}}`, `{{targetName}}`, `{{characterName}}`, `{{sharedMemory}}` |
-| `utterance/tone_review.md` | 生成済み発話の口調審査・書き換え（F7、Issue #5対応・plan-e、T43。`ToneReviewer`が使用） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{otherCharacterName}}`, `{{otherToneSample}}`, `{{otherFirstPerson}}`, `{{utterance}}` |
+| `utterance/tone_review.md` | 生成済み発話の口調審査・書き換え（F7、Issue #5対応・plan-e、T43。`ToneReviewer`が使用。PR #8レビュー対応で、他キャラクターの口調プロフィールと比較する相対評価をやめ、話者本人のプロフィールのみを基準とする絶対評価に変更した） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{utterance}}` |
 
 T10時点では`utterance/base.md`/`utterance/with_shared_memory.md`のみ作成した。`dialogueAct/candidate_selection.md`（F5.5、小型LLMによるAct候補提案の任意機能）はF5.5自体が未実装のため作成していない。`utterance/tone_review.md`はT43で追加した。
 
@@ -518,8 +518,8 @@ export interface ToneReviewCharacterProfile {
 
 export interface ToneReviewInput {
   utterance: string;
-  speaker: ToneReviewCharacterProfile;
-  previousSpeaker: ToneReviewCharacterProfile | null; // 会話開始直後（1発話目）はnull
+  speaker: ToneReviewCharacterProfile; // 話者本人のプロフィールのみを審査基準とする
+  model?: string;
 }
 
 export interface ToneReviewResult {
@@ -541,7 +541,9 @@ export class ToneReviewer {
 }
 ```
 
-Issue #5（「キャラクターの口調が、前に発言した別キャラクターの口調に引っ張られる」）への対応として、`ConversationManager.runTurn`は`llmClient.complete`で発話を生成した直後、`toneReviewer.review()`を1回呼び出す。話者本人のキャラクタープロフィール（`name`/`personality`/`toneSample`/`firstPerson`）と、直前に発言していた他キャラクター（今回のターンで`sessionState`を更新する前の`previousSpeakerId`）の同プロフィールを渡し、「逸脱していれば口調（語尾・一人称・敬語レベル）だけを話者本人のものに書き直し、そうでなければそのまま出力する」ことをプロンプト（`utterance/tone_review.md`）1回のLLM呼び出しで行わせる（判定用・書き換え用で2回呼ばない）。
+Issue #5（「キャラクターの口調が、前に発言した別キャラクターの口調に引っ張られる」）への対応として、`ConversationManager.runTurn`は`llmClient.complete`で発話を生成した直後、`toneReviewer.review()`を1回呼び出す。話者本人のキャラクタープロフィール（`name`/`personality`/`toneSample`/`firstPerson`）だけを渡し、「本人の口調として正しくなければ口調（語尾・一人称・敬語レベル）だけを話者本人のものに書き直し、正しければそのまま出力する」ことをプロンプト（`utterance/tone_review.md`）1回のLLM呼び出しで行わせる（判定用・書き換え用で2回呼ばない）。
+
+PR #8のレビュー対応（マージ前）として、当初は直前に発言していた他キャラクターの同プロフィールも審査materialとして渡し「その口調に引っ張られていないか」を見る相対評価にしていたが、他キャラクターの情報を混ぜること自体がかえって口調を引っ張ってしまうという指摘を受け、`ToneReviewInput`から`previousSpeaker`フィールドを削除し、話者本人のプロフィールのみを基準とする絶対評価に変更した（`ConversationManager`側の`previousSpeakerDef`解決・受け渡しの配線も削除）。
 
 既存のplan-c（PR #4、`OutputParser`層での文字列一致ヒューリスティックによる逸脱検知＋同一プロンプトでの再生成）とは異なり、判定自体もLLMに委ねる点、および検知時に「診断結果に基づいて口調だけを書き換える」（同一プロンプトでの盲目的な再生成ではない）点が異なる。
 

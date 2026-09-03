@@ -244,6 +244,7 @@
   `ConversationManager`のコンストラクタは、既存呼び出し元（`TurnOrchestrator`等）の位置引数がずれないよう`toneReviewer`を末尾（`eventBus`の後）にoptional・default付きで追加し、`TurnOrchestrator.ts`側の変更は不要にした。
   テスト: `ToneReviewer.test.ts`で「逸脱ありの場合に書き換え結果を返す」「逸脱なしの場合は元の発話をそのまま返す」「LLM呼び出し失敗時は元の発話にフォールバックする」等を確認。`ConversationManager.test.ts`に`ToneReviewer`の配線（書き換え結果の採用、`layer:llm`イベントへの反映、1発話目/2発話目以降での`previousSpeaker`の渡し方、既定`ToneReviewer`使用時に例外を投げないこと）を確認するテストを追加。
   **実施内容（対応済み）**: 上記の通り実装。`class-design.md` 10章にプロンプトテンプレート一覧の追記と10.2章（ToneReviewer）を新設、`types/events.ts`の`LlmLayerPayload`を拡張。E2E確認は`packages/server/src/scripts/e2eConversation.ts`（char_a〜char_d、20ターン）で実施し、結果は対応するPRのArtifact（会話ログレポート）を参照。
+  **追記（PR #8レビュー対応）**: レビューで「他キャラクターの情報を審査materialに含めると、その口調に引っ張られる」「相対評価ではなく話者本人の口調として正しいかの絶対評価にすべき」との指摘を受け、`ToneReviewInput`から`previousSpeaker`フィールド・`tone_review.md`の他キャラクター情報セクションを削除し、話者本人のプロフィールのみを基準とする絶対評価に変更した。詳細は`class-design.md` 10.2章および`doc/changelog/`配下の対応する記録を参照。
 
 ## 未着手事項の追加について
 

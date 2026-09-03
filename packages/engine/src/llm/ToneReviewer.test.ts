@@ -9,8 +9,7 @@ function makePromptBuilder(): PromptBuilder {
     load: vi
       .fn()
       .mockReturnValue(
-        '{{characterName}}/{{personality}}/{{toneSample}}/{{firstPerson}}/' +
-          '{{otherCharacterName}}/{{otherToneSample}}/{{otherFirstPerson}}/{{utterance}}',
+        '{{characterName}}/{{personality}}/{{toneSample}}/{{firstPerson}}/{{utterance}}',
       ),
   } as unknown as PromptTemplateLoader;
   return new PromptBuilder(loader);
@@ -24,12 +23,6 @@ function makeInput(utterance: string) {
       personality: '天真爛漫',
       toneSample: '〜だよ！',
       firstPerson: 'ぼく',
-    },
-    previousSpeaker: {
-      name: '楽',
-      personality: '冷静',
-      toneSample: '〜ですね',
-      firstPerson: '私',
     },
   };
 }
@@ -77,7 +70,10 @@ describe('ToneReviewer', () => {
     expect(result.error).toContain('タイムアウト');
   });
 
-  it('previousSpeakerがnull（会話開始直後）でも例外にならずプロンプトを構築する', async () => {
+  // PR #8レビュー対応: ToneReviewInputはspeaker（話者本人）の口調プロフィールのみを
+  // 受け取り、他キャラクター（previousSpeaker相当）の情報は一切受け取らない・
+  // プロンプトにも含めない設計であることを確認する回帰防止テスト。
+  it('他キャラクターの情報を渡さなくても例外にならずプロンプトを構築する（speakerの情報のみ使用）', async () => {
     const llmClient: LlmClient = {
       complete: vi.fn().mockResolvedValue('やったー！'),
     };
@@ -91,11 +87,10 @@ describe('ToneReviewer', () => {
         toneSample: '〜だよ！',
         firstPerson: 'ぼく',
       },
-      previousSpeaker: null,
     });
 
     expect(result.utterance).toBe('やったー！');
-    expect(result.prompt).toContain('(なし');
+    expect(result.prompt).toBe('宇良/天真爛漫/〜だよ！/ぼく/やったー！');
   });
 
   it('LLM呼び出しにtemperatureオプションを渡す', async () => {

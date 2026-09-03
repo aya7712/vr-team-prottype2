@@ -172,22 +172,12 @@ export class ConversationManager {
     });
     const generatedUtterance = this.outputParser.extractUtterance(rawOutput);
 
-    // Issue #5対応（plan-e、T43）: 直前に発言していた他キャラクター（今回のsessionState更新前の
-    // previousSpeakerId）の口調プロフィールと共に発話を審査する。previousSpeakerIdが無い
-    // （会話開始直後の1発話目）場合はnullを渡し、ToneReviewer側で審査対象なしとして扱う。
-    // 上のspeakerDef（145行目付近）と異なり、previousSpeakerIdがcharacterDefsに
-    // 見つからない場合もthrowしない（実装者判断、code-reviewでの指摘への対応）。
-    // speakerDefはプロンプト構築に必須（欠けるとターン全体が成立しない）だが、
-    // previousSpeakerDefは「他キャラの口調プロフィールを審査materialに加える」という
-    // 補助的な用途のみで、欠けていてもToneReviewer.review()がpreviousSpeaker: null
-    // （＝会話開始直後と同じ扱い）として安全にフォールバックできる。ToneReviewer自体が
-    // 「審査品質のためにターン全体を失敗させない」設計方針（このファイル下部のtoneReview
-    // 呼び出し、およびToneReviewer.review()内のフォールバック参照）のため、ここでも
-    // 同じ方針を踏襲し、通常発生しない状況（前ターンの話者がcharacterDefsに存在しない）
-    // で例外を投げてターンを失敗させることは避けた。
-    const previousSpeakerDef = sessionState.previousSpeakerId
-      ? this.characterDefs.get(sessionState.previousSpeakerId)
-      : undefined;
+    // Issue #5対応（plan-e、T43）: 生成された発話を、話者本人の口調プロフィール
+    // （name/personality/toneSample/firstPerson）だけを基準に審査・書き換えする。
+    // PR #8レビュー対応: 以前は直前に発言していた他キャラクターの口調プロフィールも
+    // 審査materialとして渡していたが、他キャラの情報を混ぜるとその口調に引っ張られたかを見る
+    // 相対評価になってしまうという指摘を受け、他キャラクターの情報は一切渡さない設計に
+    // 変更した（previousSpeakerDefの解決・受け渡しごと削除）。
     const toneReview = await this.toneReviewer.review({
       utterance: generatedUtterance,
       // 発話生成本体と同じモデルを審査にも使う（ToneReviewer.ToneReviewInput.model参照。
@@ -200,14 +190,6 @@ export class ConversationManager {
         toneSample: speakerDef.toneSample ?? '',
         firstPerson: speakerDef.firstPerson ?? '',
       },
-      previousSpeaker: previousSpeakerDef
-        ? {
-            name: previousSpeakerDef.name,
-            personality: previousSpeakerDef.personality,
-            toneSample: previousSpeakerDef.toneSample ?? '',
-            firstPerson: previousSpeakerDef.firstPerson ?? '',
-          }
-        : null,
     });
     const utterance = toneReview.utterance;
     this.eventBus?.emit('layer:llm', {

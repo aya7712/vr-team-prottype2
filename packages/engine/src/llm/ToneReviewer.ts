@@ -16,8 +16,6 @@ export interface ToneReviewCharacterProfile {
 export interface ToneReviewInput {
   utterance: string;
   speaker: ToneReviewCharacterProfile;
-  // 直前に発言していた別のキャラクター。会話開始直後（1発話目）はnull。
-  previousSpeaker: ToneReviewCharacterProfile | null;
   // 話者のCharacterDefRecord.llm.model（存在する場合）。E2E確認（T43）で、未指定時に
   // TogetherClientのハードコードされた既定モデル（`google/gemma-3n-E4B-it`）が
   // Together AI側でserverless提供終了済みのため全審査呼び出しが400エラーで失敗する
@@ -47,6 +45,12 @@ export interface ToneReviewResult {
  * plan-c（文字列一致ヒューリスティックでの逸脱検知＋同一プロンプトでの再生成）とは異なり、
  * 判定自体もLLMに委ね、「逸脱していれば書き直し、なければそのまま出力せよ」という
  * 1回の呼び出しで検知と書き換えを同時に行う（判定用・書き換え用で2回呼ばない）。
+ *
+ * PR #8レビュー対応: 判定基準は話者本人のtoneSample/firstPerson/personalityのみを
+ * 基準とする絶対評価であり、直前に発言していた別キャラクターの口調プロフィールは
+ * 一切参照しない（他キャラの情報を審査materialに混ぜると、その口調に引っ張られたかを見る
+ * 相対評価になってしまうというレビュー指摘への対応。以前はToneReviewInput.previousSpeaker
+ * を受け取っていたが、この対応でフィールドごと削除した）。
  */
 export class ToneReviewer {
   constructor(
@@ -79,9 +83,6 @@ export class ToneReviewer {
         personality: input.speaker.personality,
         toneSample: input.speaker.toneSample,
         firstPerson: input.speaker.firstPerson,
-        otherCharacterName: input.previousSpeaker?.name ?? '(なし。会話開始直後)',
-        otherToneSample: input.previousSpeaker?.toneSample ?? '(なし)',
-        otherFirstPerson: input.previousSpeaker?.firstPerson ?? '(なし)',
         utterance: input.utterance,
       });
       const rawOutput = await this.llmClient.complete(prompt, {
