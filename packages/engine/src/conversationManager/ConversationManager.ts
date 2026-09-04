@@ -157,14 +157,24 @@ export class ConversationManager {
       model: speakerLlmConfig?.model,
       temperature: speakerLlmConfig?.temperature,
     });
-    const utterance = this.outputParser.extractUtterance(rawOutput);
+    const { utterance, declaredTargetName } = this.outputParser.parseUtteranceOutput(rawOutput);
     this.eventBus?.emit('layer:llm', { prompt, rawOutput });
+
+    // Issue #15 plan-b: LLM自身が2行目に申告した呼びかけ対象をtargetIdsとして採用する。
+    // 申告が無い/書式が崩れている/参加者名と一致しない場合は、従来通り
+    // 「直前の話者」をtargetIdsとするデフォルトへフォールバックする。
+    const declaredTargetId = this.resolveDeclaredTargetId(
+      declaredTargetName,
+      speakerId,
+      sessionState.participantIds,
+    );
+    const targetIds = declaredTargetId ? [declaredTargetId] : [targetId];
 
     const result: TurnResult = {
       sessionId: sessionState.sessionId,
       turnNo: nextTurnNo,
       speakerId,
-      targetIds: [targetId],
+      targetIds,
       topicId: topic.id,
       dialogueAct: act,
       utterance,
@@ -180,7 +190,16 @@ export class ConversationManager {
       { speakerId, utterance, turnNo: nextTurnNo },
     ].slice(-5);
     sessionState.conversationStateManager.updateAfterTurn(act, topicScore);
-    this.relationshipUpdater.applyTurnResult(this.relationshipManager.getGraph(), result);
+    // 独立レビューで指摘: dialogueAct/relationshipContextは「話者→targetId（直前の話者）」の
+    // ペアを前提に計算済みのため、trust/intimacyの更新もそのペアに対して行う。result.targetIds
+    // （LLMが申告した呼びかけ対象）をそのままRelationshipUpdaterへ渡すと、dialogueAct選定の
+    // 根拠になっていない別ペアへ無関係な関係値変化を適用してしまうため、ここでは意図的に
+    // 従来通りのtargetIdを使う（Issue #15 plan-bの適用範囲は「ログ/次ターンの話者選択」に限定し、
+    // 関係性更新のペア決定ロジックは変更しない）。
+    this.relationshipUpdater.applyTurnResult(this.relationshipManager.getGraph(), {
+      ...result,
+      targetIds: [targetId],
+    });
 
     this.eventBus?.emit('turn:complete', result);
     return result;
@@ -296,6 +315,19 @@ export class ConversationManager {
       .map((u) => `${this.characterDefs.get(u.speakerId)?.name ?? u.speakerId}: ${u.utterance}`)
       .join('\n');
 
+    // Issue #15 plan-b: LLM自身に呼びかけ対象を申告させるため、話者以外の参加者名を
+    // 一覧としてプロンプトへ渡す。「会話相手（直前の話者）」は{{targetName}}で別枠表示済み
+    // のためここでは除外する（独立レビュー指摘: 除外しないと同じ相手が2箇所に重複表示される）。
+    // CharacterDefRecord.nameは戸籍上のフルネーム（例:「里須野楽」）だが、実際のセリフ・
+    // personality/tone_sampleでは`relationships[].address`のニックネーム（例:「楽」）で
+    // 呼び合う設定になっているため、名前一覧にもニックネームを使う（実際のE2E確認で、
+    // フルネームを渡すとLLMがpersonality文中のニックネームで「対象:」を申告し、
+    // 一覧の表記と一致しなくなることを確認したため）。
+    const participantNames = sessionState.participantIds
+      .filter((id) => id !== speakerId && id !== targetId)
+      .map((id) => this.resolveAddressTerm(speakerId, id))
+      .join('、');
+
     return this.promptBuilder.build('utterance/base', {
       characterName: speakerDef.name,
       personality: speakerDef.personality,
@@ -305,10 +337,56 @@ export class ConversationManager {
       speakingStyle: `敬語レベル${characterState.speakingStyle.honorificLevel.toFixed(1)}/距離感${characterState.speakingStyle.distance.toFixed(1)}`,
       targetName: targetDef?.name ?? targetId,
       addressTerm: relationshipContext.addressTerm,
+      participantNames: participantNames || '(なし)',
       dialogueAct: act,
       topicLabel: topic.label,
       retrievedMemory: retrievedMemories.map((m) => m.summary).join('\n') || '(なし)',
       recentDialogue: recentDialogue || '(会話開始)',
     });
+  }
+
+  // 話者から見た参加者idの呼び方を返す（既存のRelationshipManager.resolve().addressTermを
+  // そのまま使う。独立レビュー指摘: CharacterDefRecord.relationshipsを直接読む重複実装を避け、
+  // 「会話相手」欄と同じ解決経路に一本化した）。関係性データが無い相手はフルネームへ
+  // フォールバックする。
+  private resolveAddressTerm(speakerId: string, targetId: string): string {
+    const addressTerm = this.relationshipManager.resolve(speakerId, targetId).addressTerm;
+    return addressTerm || (this.characterDefs.get(targetId)?.name ?? targetId);
+  }
+
+  // Issue #15 plan-b: LLMが2行目に申告した対象名を、話者以外の参加者idへ解決する。
+  // 申告が無い（null）場合はundefinedを返し、呼び出し側で既存のtargetIdへフォールバックする。
+  private resolveDeclaredTargetId(
+    declaredTargetName: string | null,
+    speakerId: string,
+    participantIds: string[],
+  ): string | undefined {
+    if (!declaredTargetName) return undefined;
+
+    const candidates = participantIds.filter((id) => id !== speakerId);
+    // 各候補について「フルネーム」と「話者から見た呼び方」の両方を許容表記として集める。
+    const nameVariants = (id: string): string[] => {
+      const fullName = this.characterDefs.get(id)?.name;
+      const address = this.resolveAddressTerm(speakerId, id);
+      return [fullName, address].filter((v): v is string => Boolean(v));
+    };
+
+    // 独立レビュー指摘: 一致候補が複数ある場合に先頭を無条件採用すると誤判定になりうるため、
+    // 完全一致・部分一致のいずれも「一意に絞れた場合のみ」採用し、曖昧な場合はフォールバックする。
+    const exactMatches = candidates.filter((id) => nameVariants(id).includes(declaredTargetName));
+    if (exactMatches.length === 1) return exactMatches[0];
+    if (exactMatches.length > 1) return undefined;
+
+    // 完全一致しない場合の救済策。実際のE2E確認（Issue #15 plan-b検証）で、正式な呼び方が
+    // 「奈也兄」の参加者をLLMが「対象:奈也」のように略して申告するケースを確認したため、
+    // どちらかがどちらかを含む部分一致で補完する。
+    const partialMatches = candidates.filter((id) =>
+      nameVariants(id).some(
+        (variant) =>
+          variant.length >= 2 &&
+          (variant.includes(declaredTargetName) || declaredTargetName.includes(variant)),
+      ),
+    );
+    return partialMatches.length === 1 ? partialMatches[0] : undefined;
   }
 }
