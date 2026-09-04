@@ -245,6 +245,118 @@ describe('ConversationManager', () => {
     expect(after).not.toEqual(before);
   });
 
+  // Issue #15の自己レビューで発覚: 名指し検出（AddresseeMentionDetector）の結果を
+  // そのままresult.targetIdsとしてRelationshipUpdaterに渡すと、実際にやり取りした
+  // 相手（targetId）ではなく、発話内でたまたま名前が挙がっただけの第三者に
+  // trust/intimacy・Relationship Storyが誤帰属してしまう回帰を防止する。
+  it('名指しされた第三者ではなく、実際の会話相手のRelationshipGraphが更新される（Issue #15）', async () => {
+    const relationshipGraph = new RelationshipGraph();
+    relationshipGraph.addEdge({
+      characterId: 'char_a',
+      targetCharacterId: 'char_b',
+      type: '幼馴染',
+      trust: 0.5,
+      intimacy: 0.5,
+      respect: 0.5,
+      story: [],
+    });
+    const relationshipManager = new RelationshipManager(relationshipGraph, []);
+
+    const characterDefs = new Map<string, CharacterDefRecord>([
+      [
+        'char_a',
+        {
+          ...makeCharacterDef('char_a', '宇良'),
+          relationships: [
+            { characterId: 'char_a', targetCharacterId: 'char_b', address: '楽', description: '' },
+            {
+              characterId: 'char_a',
+              targetCharacterId: 'char_c',
+              address: '理久',
+              description: '',
+            },
+          ],
+        },
+      ],
+      ['char_b', makeCharacterDef('char_b', '楽')],
+      ['char_c', makeCharacterDef('char_c', '理久')],
+    ]);
+
+    const characterBrains = new Map([
+      ['char_a', makeCharacterBrain('char_a')],
+      ['char_b', makeCharacterBrain('char_b')],
+      ['char_c', makeCharacterBrain('char_c')],
+    ]);
+
+    // dialogueActを'empathy'に固定し、trust/intimacyの変化量を決定的にする
+    // （実際のDialoguePlannerは確率的にActを選ぶため、このテストの主眼である
+    // 「更新先のペアが正しいか」の検証と切り離すために差し替える）。
+    const fixedDialoguePlanner = {
+      planNext: () => ({
+        act: 'empathy' as const,
+        scores: [],
+        expectation: { expectedActs: [] },
+      }),
+    } as unknown as DialoguePlanner;
+
+    const memoryRepo = new InMemoryMemoryRepository([]);
+    const memoryRetriever = new MemoryRetriever(memoryRepo);
+    const templateLoader = makeFakeTemplateLoader('{{characterName}}が話す。');
+    const promptBuilder = new PromptBuilder(templateLoader);
+    // 実際の会話相手（previousSpeakerId未設定時のtargetId＝char_b）とは別に、
+    // 発話内で第三者（char_c＝「理久」）を名指しする発話を返す。
+    const llmClient: LlmClient = {
+      complete: vi.fn().mockResolvedValue('「理久はどう思ってるかな」'),
+    };
+
+    const manager = new ConversationManager(
+      new TopicClassifier(),
+      new TopicParameterUpdater(),
+      new TopicContinuationScorer(),
+      relationshipManager,
+      characterBrains,
+      fixedDialoguePlanner,
+      memoryRetriever,
+      promptBuilder,
+      llmClient,
+      new OutputParser(),
+      characterDefs,
+      new SpeakerSelector(),
+      new EndConditionEvaluator(),
+      new TopicBranchMerger(),
+      new RelationshipUpdater(),
+    );
+
+    const sessionState: SessionState = {
+      sessionId: 'session_3',
+      participantIds: ['char_a', 'char_b', 'char_c'],
+      topicTree: new TopicTree(),
+      conversationStateManager: new ConversationStateManager(new RhythmTracker()),
+      turnNo: 0,
+      recentUtterances: [],
+      initialTopic: '最初の話題',
+    };
+
+    const result = await manager.runTurn(sessionState);
+
+    // previousSpeakerId未設定の1発話目はchar_aが話者、targetId(会話上の相手)は
+    // char_bになる（86-87行目のフォールバック）が、発話内で名指しされたchar_cが
+    // result.targetIds（→次ターンのNAMED_BONUS用）には採用される。
+    expect(result.speakerId).toBe('char_a');
+    expect(result.targetIds).toEqual(['char_c']);
+
+    // にもかかわらず、trust/intimacyの更新は実際の会話相手であるchar_bとの
+    // ペアにのみ適用され（empathy: trust+0.02, intimacy+0.05）、名指しされた
+    // だけのchar_cとのペアはデフォルト値のまま変化しないこと。
+    const edgeAB = relationshipGraph.getEdge('char_a', 'char_b');
+    expect(edgeAB.trust).toBeCloseTo(0.52, 5);
+    expect(edgeAB.intimacy).toBeCloseTo(0.55, 5);
+
+    const edgeAC = relationshipGraph.getEdge('char_a', 'char_c');
+    expect(edgeAC.trust).toBeCloseTo(0.5, 5);
+    expect(edgeAC.intimacy).toBeCloseTo(0.5, 5);
+  });
+
   it('runSessionはmaxTurns分のTurnResultを例外なく生成する', async () => {
     const { manager } = makeConversationManager(['「発話」']);
     const sessionState = makeSessionState();

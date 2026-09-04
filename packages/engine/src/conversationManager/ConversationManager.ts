@@ -18,6 +18,8 @@ import type { MemoryItem } from '../types/memory.js';
 import { SpeakerSelector } from './SpeakerSelector.js';
 import { EndConditionEvaluator } from './EndConditionEvaluator.js';
 import { TopicBranchMerger } from './TopicBranchMerger.js';
+import { AddresseeMentionDetector } from './AddresseeMentionDetector.js';
+import type { MentionCandidate } from './AddresseeMentionDetector.js';
 import type { SessionState } from './types.js';
 
 // 直前ターンのDialogueActをTopicイベントへ変換する対応表（features.md F4.3）。
@@ -67,6 +69,10 @@ export class ConversationManager {
     // 全6ペアのtrust/intimacyが変化しないことから発覚したため、ここで配線する。
     private readonly relationshipUpdater: RelationshipUpdater = new RelationshipUpdater(),
     private readonly eventBus?: EngineEventBus,
+    // Issue #15: 実際に生成された発話の中で誰が名指しされたかをresult.targetIdsへ
+    // 反映するための検出器。既存の呼び出し元（テスト含む）が位置引数でeventBusまで
+    // しか渡していないため、後方互換のため末尾に追加する。
+    private readonly addresseeMentionDetector: AddresseeMentionDetector = new AddresseeMentionDetector(),
   ) {}
 
   async runTurn(sessionState: SessionState): Promise<TurnResult> {
@@ -160,11 +166,21 @@ export class ConversationManager {
     const utterance = this.outputParser.extractUtterance(rawOutput);
     this.eventBus?.emit('layer:llm', { prompt, rawOutput });
 
+    // Issue #15: 発話生成前に決めたtargetId（直前の話者、86-87行目）はあくまで
+    // プロンプト構築用の「話しかける想定相手」であり、実際に生成された発話内で
+    // 名指しされた相手とは限らない。生成済みutteranceを見て名指しを検出できた場合は
+    // それをresult.targetIds（→次ターンのSpeakerSelector.NAMED_BONUSの入力）として
+    // 採用し、検出できなければ従来通りtargetIdへフォールバックする。
+    const mentionedTargetId = this.addresseeMentionDetector.detect(
+      utterance,
+      this.buildMentionCandidates(sessionState.participantIds, speakerId),
+    );
+
     const result: TurnResult = {
       sessionId: sessionState.sessionId,
       turnNo: nextTurnNo,
       speakerId,
-      targetIds: [targetId],
+      targetIds: [mentionedTargetId ?? targetId],
       topicId: topic.id,
       dialogueAct: act,
       utterance,
@@ -180,7 +196,19 @@ export class ConversationManager {
       { speakerId, utterance, turnNo: nextTurnNo },
     ].slice(-5);
     sessionState.conversationStateManager.updateAfterTurn(act, topicScore);
-    this.relationshipUpdater.applyTurnResult(this.relationshipManager.getGraph(), result);
+    // Issue #15の自己レビューで発覚: RelationshipUpdaterはresult.targetIdsを見て
+    // trust/intimacy・Relationship Story更新先のペアを決めるが、dialogueAct/
+    // relationshipContext/promptは全てtargetId（会話上の実際の相手）を前提に
+    // 計算済みである。result.targetIdsを名指し検出結果（mentionedTargetId、
+    // 会話上の相手とは別の第三者を指しうる）で上書きしたまま渡すと、関係性の
+    // 更新が実際にやり取りした相手ではなく無関係な第三者に誤帰属してしまう。
+    // そのためRelationshipUpdaterには元のtargetId（会話上の相手）のみを渡す
+    // （名指し検出結果はresult.targetIds/previousTargetIds経由で次ターンの
+    // SpeakerSelector.NAMED_BONUSにのみ影響させる、という案の設計を維持する）。
+    this.relationshipUpdater.applyTurnResult(this.relationshipManager.getGraph(), {
+      ...result,
+      targetIds: [targetId],
+    });
 
     this.eventBus?.emit('turn:complete', result);
     return result;
@@ -273,6 +301,31 @@ export class ConversationManager {
     }
 
     return topic;
+  }
+
+  // Issue #15: CharacterDefRecord.nameはフルネーム（例:「浦々宇良」）だが、
+  // 実際の発話中ではrelationships[].address（例:「宇良」「理久兄」）等の
+  // 呼び名で呼び合っており、name単体では発話中の名指しをほぼ検出できない
+  // （実データで確認済み）。そのため候補ごとに、name/furiganaに加えて
+  // 全キャラクターのrelationships（誰から見た呼び方かは問わない）から
+  // その候補宛のaddressを集め、名指し検出の対象名バリエーションとする。
+  private buildMentionCandidates(participantIds: string[], speakerId: string): MentionCandidate[] {
+    const allDefs = [...this.characterDefs.values()];
+
+    return participantIds
+      .filter((id) => id !== speakerId)
+      .map((id) => this.characterDefs.get(id))
+      .filter((def): def is CharacterDefRecord => def !== undefined)
+      .map((def) => {
+        const addressTerms = allDefs
+          .flatMap((d) => d.relationships)
+          .filter((relationship) => relationship.targetCharacterId === def.id)
+          .map((relationship) => relationship.address);
+        const names = [def.name, def.furigana ?? undefined, ...addressTerms].filter(
+          (name): name is string => Boolean(name),
+        );
+        return { characterId: def.id, names: [...new Set(names)] };
+      });
   }
 
   private buildPrompt(
