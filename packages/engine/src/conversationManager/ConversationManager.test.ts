@@ -14,6 +14,7 @@ import { SpeakingStyleResolver } from '../character/SpeakingStyleResolver.js';
 import { RelationshipGraph } from '../relationship/RelationshipGraph.js';
 import { RelationshipManager } from '../relationship/RelationshipManager.js';
 import { RelationshipUpdater } from '../relationship/RelationshipUpdater.js';
+import { buildRelationshipGraphFromCharacterDefs } from '../relationship/RelationshipGraphFactory.js';
 import { TopicClassifier } from '../topic/TopicClassifier.js';
 import { TopicParameterUpdater } from '../topic/TopicParameterUpdater.js';
 import { TopicContinuationScorer } from '../topic/TopicContinuationScorer.js';
@@ -37,6 +38,7 @@ function makeCharacterDef(
   id: string,
   name: string,
   llm: CharacterDefRecord['llm'] = null,
+  relationships: CharacterDefRecord['relationships'] = [],
 ): CharacterDefRecord {
   return {
     id,
@@ -50,7 +52,7 @@ function makeCharacterDef(
     toneSample: null,
     vocabulary: [],
     ngTopics: ['禁止トピック'],
-    relationships: [],
+    relationships,
     unitContext: null,
     llm,
     rawYamlPath: `${id}.yaml`,
@@ -154,6 +156,92 @@ function makeConversationManager(
     eventBus,
   );
   return { manager, llmClient, relationshipGraph };
+}
+
+// Issue #15 plan-b: LLM自身が申告した呼びかけ対象をtargetIdsへ反映する挙動の検証には
+// 「話者以外に複数の参加者がいる」構成が必要なため、2体構成用のmakeConversationManagerとは
+// 別に3体構成のセットアップを用意する。
+function makeThreeCharacterConversationManager(
+  llmResponses: string[],
+  characterDefsOverride?: Map<string, CharacterDefRecord>,
+): { manager: ConversationManager; llmClient: LlmClient } {
+  const characterDefs =
+    characterDefsOverride ??
+    new Map<string, CharacterDefRecord>([
+      ['char_a', makeCharacterDef('char_a', '宇良')],
+      ['char_b', makeCharacterDef('char_b', '楽')],
+      ['char_c', makeCharacterDef('char_c', '理久')],
+    ]);
+
+  // 本番の配線（TurnOrchestrator.buildConversationManager）と同じく、addressBookは
+  // CharacterDefRecord.relationshipsから構築する（ConversationManagerの呼び方解決が
+  // RelationshipManager.resolve().addressTerm経由になったため、ここで揃える必要がある）。
+  const { graph: relationshipGraph, addressBook } = buildRelationshipGraphFromCharacterDefs([
+    ...characterDefs.values(),
+  ]);
+  const relationshipManager = new RelationshipManager(relationshipGraph, addressBook);
+
+  const catalog = new DialogueActCatalog();
+  const dialoguePlanner = new DialoguePlanner(
+    catalog,
+    new ScoreCalculator(catalog),
+    new SoftmaxSelector(),
+    new SpeechExpectationCalculator(),
+  );
+
+  const memoryRepo = new InMemoryMemoryRepository([]);
+  const memoryRetriever = new MemoryRetriever(memoryRepo);
+
+  const templateLoader = makeFakeTemplateLoader(
+    '{{characterName}}が{{topicLabel}}について{{dialogueAct}}する。参加者: {{participantNames}}',
+  );
+  const promptBuilder = new PromptBuilder(templateLoader);
+
+  let callIndex = 0;
+  const llmClient: LlmClient = {
+    complete: vi.fn().mockImplementation(async () => {
+      const response = llmResponses[callIndex] ?? llmResponses[llmResponses.length - 1];
+      callIndex++;
+      return response;
+    }),
+  };
+
+  const characterBrains = new Map([
+    ['char_a', makeCharacterBrain('char_a')],
+    ['char_b', makeCharacterBrain('char_b')],
+    ['char_c', makeCharacterBrain('char_c')],
+  ]);
+
+  const manager = new ConversationManager(
+    new TopicClassifier(),
+    new TopicParameterUpdater(),
+    new TopicContinuationScorer(),
+    relationshipManager,
+    characterBrains,
+    dialoguePlanner,
+    memoryRetriever,
+    promptBuilder,
+    llmClient,
+    new OutputParser(),
+    characterDefs,
+    new SpeakerSelector(relationshipManager),
+    new EndConditionEvaluator(),
+    new TopicBranchMerger(),
+    new RelationshipUpdater(),
+  );
+  return { manager, llmClient };
+}
+
+function makeThreeCharacterSessionState(): SessionState {
+  return {
+    sessionId: 'session_3',
+    participantIds: ['char_a', 'char_b', 'char_c'],
+    topicTree: new TopicTree(),
+    conversationStateManager: new ConversationStateManager(new RhythmTracker()),
+    turnNo: 0,
+    recentUtterances: [],
+    initialTopic: '最初の話題',
+  };
 }
 
 function makeSessionState(): SessionState {
@@ -329,6 +417,146 @@ describe('ConversationManager', () => {
       rawOutput: '「やったー！」',
     });
     expect(payloadsByEvent['turn:complete'][0]).toEqual(result);
+  });
+
+  // Issue #15: 「ねぇ楽！」のように名指しされたキャラクターではなく別のキャラクターが
+  // 返答してしまう不具合への対策（plan-b）。LLMが2行目に申告した対象をtargetIdsへ反映する。
+  describe('Issue #15 plan-b: LLMが申告した呼びかけ対象のtargetIdsへの反映', () => {
+    it('LLM出力の2行目で申告された対象（直前の話者ではない参加者）をtargetIdsに採用する', async () => {
+      const { manager } = makeThreeCharacterConversationManager(['「やったー！」\n対象:理久']);
+      const sessionState = makeThreeCharacterSessionState();
+
+      const result = await manager.runTurn(sessionState);
+
+      // 1ターン目の話者はchar_a（先頭）、デフォルトのtargetIdはchar_b（先頭以外の最初の参加者）
+      // だが、LLMは理久（char_c）への呼びかけだと申告しているためそちらが採用される。
+      expect(result.speakerId).toBe('char_a');
+      expect(result.targetIds).toEqual(['char_c']);
+    });
+
+    it('プロンプトのparticipantNamesには「会話相手」以外の参加者名だけが渡される', async () => {
+      const { manager, llmClient } = makeThreeCharacterConversationManager([
+        '「やったー！」\n対象:なし',
+      ]);
+      const sessionState = makeThreeCharacterSessionState();
+
+      await manager.runTurn(sessionState);
+
+      // 1ターン目: 話者char_a、デフォルトの会話相手（targetName）はchar_b（楽）。
+      // participantNamesは会話相手を除いた「その場にいる他の参加者」＝char_c（理久）のみを含む
+      // （独立レビュー指摘: 会話相手と重複表示しない）。
+      const [prompt] = (llmClient.complete as Mock).mock.calls[0] as [string];
+      expect(prompt).toContain('参加者: 理久');
+    });
+
+    it('「対象:なし」と申告された場合は従来通りデフォルトのtargetId（直前の話者）にフォールバックする', async () => {
+      const { manager } = makeThreeCharacterConversationManager(['「そうだね」\n対象:なし']);
+      const sessionState = makeThreeCharacterSessionState();
+
+      const result = await manager.runTurn(sessionState);
+
+      expect(result.targetIds).toEqual(['char_b']);
+    });
+
+    it('申告行が無い（フォーマット崩れ）場合は従来通りデフォルトのtargetIdにフォールバックする', async () => {
+      const { manager } = makeThreeCharacterConversationManager(['「そうだね」']);
+      const sessionState = makeThreeCharacterSessionState();
+
+      const result = await manager.runTurn(sessionState);
+
+      expect(result.targetIds).toEqual(['char_b']);
+      expect(result.utterance).toBe('そうだね');
+    });
+
+    it('申告された名前がどの参加者とも一致しない場合は従来通りデフォルトのtargetIdにフォールバックする', async () => {
+      const { manager } = makeThreeCharacterConversationManager(['「そうだね」\n対象:知らない人']);
+      const sessionState = makeThreeCharacterSessionState();
+
+      const result = await manager.runTurn(sessionState);
+
+      expect(result.targetIds).toEqual(['char_b']);
+    });
+
+    // 実際のE2E確認（Issue #15、4体・character_defの実データ）で、CharacterDefRecord.nameが
+    // フルネーム（例:「里須野楽」）である一方、personality/tone_sample上はrelationships[].address
+    // のニックネーム（例:「楽」）で呼び合う設定になっており、LLMがニックネームで「対象:」を
+    // 申告することを確認した。フルネームでの完全一致のみだと常にフォールバックしてしまうため、
+    // 話者から見た呼び方（address）でも一致判定できることを回帰テストとして残す。
+    it('フルネームではなく話者から見た呼び方（relationships[].address）で申告された場合も解決できる', async () => {
+      const characterDefs = new Map<string, CharacterDefRecord>([
+        [
+          'char_a',
+          makeCharacterDef('char_a', '浦々宇良', null, [
+            { characterId: 'char_a', targetCharacterId: 'char_b', address: '楽', description: '' },
+            {
+              characterId: 'char_a',
+              targetCharacterId: 'char_c',
+              address: '理久兄',
+              description: '',
+            },
+          ]),
+        ],
+        ['char_b', makeCharacterDef('char_b', '里須野楽')],
+        ['char_c', makeCharacterDef('char_c', '里須野理久')],
+      ]);
+      const { manager } = makeThreeCharacterConversationManager(
+        ['「理久兄！」\n対象:理久兄'],
+        characterDefs,
+      );
+      const sessionState = makeThreeCharacterSessionState();
+
+      const result = await manager.runTurn(sessionState);
+
+      expect(result.speakerId).toBe('char_a');
+      expect(result.targetIds).toEqual(['char_c']);
+    });
+
+    it('呼び方の一部だけを申告した場合（表記ゆれ）も一意に絞れれば部分一致で解決する', async () => {
+      const characterDefs = new Map<string, CharacterDefRecord>([
+        [
+          'char_a',
+          makeCharacterDef('char_a', '浦々宇良', null, [
+            {
+              characterId: 'char_a',
+              targetCharacterId: 'char_d',
+              address: '奈也兄',
+              description: '',
+            },
+          ]),
+        ],
+        ['char_b', makeCharacterDef('char_b', '里須野楽')],
+        ['char_d', makeCharacterDef('char_d', '七崎奈也')],
+      ]);
+      const { manager } = makeThreeCharacterConversationManager(
+        // LLMが正式な呼び方「奈也兄」を省略して「奈也」とだけ申告するケース。
+        ['「元気？」\n対象:奈也'],
+        characterDefs,
+      );
+      const sessionState: SessionState = {
+        ...makeThreeCharacterSessionState(),
+        participantIds: ['char_a', 'char_b', 'char_d'],
+      };
+
+      const result = await manager.runTurn(sessionState);
+
+      expect(result.speakerId).toBe('char_a');
+      expect(result.targetIds).toEqual(['char_d']);
+    });
+
+    it('申告された対象が次ターンのSpeakerSelectorのNAMED_BONUSに反映される', async () => {
+      // 1ターン目: char_aが話し、char_c（理久）を名指し。previousTargetIdsがchar_cになるため、
+      // 2ターン目のSpeakerSelectorはchar_cを優先的に選びやすくなる（従来の「直前の話者=char_a
+      // 以外」という以上の絞り込みはできないが、targetIdsにchar_cが記録されること自体を検証する）。
+      const { manager } = makeThreeCharacterConversationManager([
+        '「ねぇ理久！」\n対象:理久',
+        '「うん」\n対象:なし',
+      ]);
+      const sessionState = makeThreeCharacterSessionState();
+
+      const first = await manager.runTurn(sessionState);
+      expect(first.targetIds).toEqual(['char_c']);
+      expect(sessionState.previousTargetIds).toEqual(['char_c']);
+    });
   });
 
   it('runTurnは発話者のCharacterDefRecord.llmに設定されたmodel/temperatureをllmClientへ渡す', async () => {
