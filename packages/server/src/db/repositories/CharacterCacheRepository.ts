@@ -45,6 +45,7 @@ export class CharacterCacheRepository {
       first_person: string | null;
       personality: string;
       tone_sample: string | null;
+      tone_exemplars_json: string | null;
       vocabulary_json: string;
       ng_topics_json: string;
       unit_context_json: string | null;
@@ -73,6 +74,9 @@ export class CharacterCacheRepository {
       firstPerson: row.first_person,
       personality: row.personality,
       toneSample: row.tone_sample,
+      toneExemplars: row.tone_exemplars_json
+        ? (JSON.parse(row.tone_exemplars_json) as string[])
+        : [],
       vocabulary: JSON.parse(row.vocabulary_json) as string[],
       ngTopics: JSON.parse(row.ng_topics_json) as string[],
       relationships: relRows
@@ -121,9 +125,11 @@ export class CharacterCacheRepository {
       const insertChar = this.db.prepare(`
         INSERT INTO characters_cache
           (id, name, furigana, color, age, gender, first_person, personality, tone_sample,
-           vocabulary_json, ng_topics_json, unit_context_json, llm_json, raw_yaml_path, loaded_at)
+           tone_exemplars_json, vocabulary_json, ng_topics_json, unit_context_json, llm_json,
+           raw_yaml_path, loaded_at)
         VALUES (@id, @name, @furigana, @color, @age, @gender, @firstPerson, @personality, @toneSample,
-                @vocabularyJson, @ngTopicsJson, @unitContextJson, @llmJson, @rawYamlPath, @loadedAt)
+                @toneExemplarsJson, @vocabularyJson, @ngTopicsJson, @unitContextJson, @llmJson,
+                @rawYamlPath, @loadedAt)
         ON CONFLICT(id) DO UPDATE SET
           name = excluded.name,
           furigana = excluded.furigana,
@@ -133,6 +139,7 @@ export class CharacterCacheRepository {
           first_person = excluded.first_person,
           personality = excluded.personality,
           tone_sample = excluded.tone_sample,
+          tone_exemplars_json = excluded.tone_exemplars_json,
           vocabulary_json = excluded.vocabulary_json,
           ng_topics_json = excluded.ng_topics_json,
           unit_context_json = excluded.unit_context_json,
@@ -157,6 +164,7 @@ export class CharacterCacheRepository {
           firstPerson: record.firstPerson,
           personality: record.personality,
           toneSample: record.toneSample,
+          toneExemplarsJson: JSON.stringify(record.toneExemplars),
           vocabularyJson: JSON.stringify(record.vocabulary),
           ngTopicsJson: JSON.stringify(record.ngTopics),
           unitContextJson: record.unitContext ? JSON.stringify(record.unitContext) : null,

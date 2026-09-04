@@ -76,6 +76,7 @@ packages/engine/prompts/**/*.md   … D12（Gitでバージョン管理、SQLite
 - `design/main/*.yaml` をパースし、`personality` / `tone_sample` / `vocabulary` / `ng_topics` / `relationships`（相手キャラID・呼称・関係の説明文）/ `unit_context` / `llm`（モデル・temperature推奨値）をそのまま `characters_cache` へ格納する。
 - `relationships` フィールドは、F2 Relationship Graphの**初期値**として利用する（`type`は`description`から要約、または当面はdescriptionをそのままエッジのメタ情報として保持し、`trust`/`intimacy`等の数値は初期値をデフォルト値から開始し会話を通じて更新する。既存YAMLに数値の初期値定義がないため、初期値は本エンジン側で定めるコンフィグとする）。
 - `design/sub/*.yaml` は、Shared Memoryの`participants`に登場する脇役の名称解決用に読み込む（脇役自身はCharacter Brainを持たず、発話もしない）。
+- `tone_exemplars_json`（Issue #5「口調間違い」対応）のみ`design/main`由来ではなく、4.3のD3（長期記憶プリセット）から`ToneExemplarSelector`が導出する派生データである。`character_def`から直接取り込む他のフィールドと区別するため、ここに明記する。
 
 ### 4.3 長期記憶プリセット（D3）の取り込み
 - `memory/<owner>/*.md` をYAML frontmatter + 本文としてパースし、`memory_preset_cache` へ格納する。主な列は README.md記載の項目に準拠: `id`, `owner`, `participants`, `occurred_at`, `occurred_era`, `location`, `summary`, `tags`, `importance`, `emotion`, `shareable`, `related`, 本文（`body`）。
@@ -98,6 +99,8 @@ CREATE TABLE characters_cache (
   first_person    TEXT,
   personality     TEXT,
   tone_sample     TEXT,
+  tone_exemplars_json TEXT,             -- JSON配列。ToneExemplarSelector出力（Issue #5対応、
+                                         -- migrate.tsのマイグレーションversion 3で追加）
   vocabulary_json TEXT,                 -- JSON配列
   ng_topics_json  TEXT,                 -- JSON配列
   unit_context_json TEXT,               -- JSON

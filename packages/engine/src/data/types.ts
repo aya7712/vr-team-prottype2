@@ -24,6 +24,10 @@ export interface CharacterDefRecord {
   firstPerson: string | null;
   personality: string;
   toneSample: string | null;
+  // memory/<owner>/*.mdのbody（本人owner一人称の記憶）から抽出した口調の実例（Issue #5
+  // コメント案1）。ToneExemplarSelectorがCharacterDefLoader.loadAll()時に付与する。
+  // 該当する記憶が無ければ空配列（nullにはしない。プロンプト側の分岐を単純にするため）。
+  toneExemplars: string[];
   vocabulary: string[];
   ngTopics: string[];
   relationships: CharacterRelationshipRecord[];

@@ -48,6 +48,7 @@ function makeCharacterDef(
     firstPerson: '私',
     personality: `${name}の性格`,
     toneSample: null,
+    toneExemplars: [],
     vocabulary: [],
     ngTopics: ['禁止トピック'],
     relationships: [],
