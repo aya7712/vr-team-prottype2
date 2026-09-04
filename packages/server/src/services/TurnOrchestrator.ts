@@ -25,6 +25,7 @@ import {
   PromptBuilder,
   OutputParser,
   SpeakerSelector,
+  AddresseeSelector,
   EndConditionEvaluator,
   TopicBranchMerger,
   ConversationManager,
@@ -219,6 +220,7 @@ export class TurnOrchestrator {
       new TopicBranchMerger(),
       new RelationshipUpdater(),
       this.eventBus,
+      new AddresseeSelector(relationshipManager),
     );
   }
 

@@ -117,9 +117,10 @@ async function main(): Promise<void> {
   // T31（requirements.md 7.2）: 発話機会の分配・名指し誘導・関係性破綻の有無を
   // 目視確認するための集計をT19のスクリプトに追加した。
   const speakerCounts = new Map<string, number>();
-  // ConversationManagerはtargetIdsを常に1件配列で埋めるため「名指しの有無」自体は
-  // 全ターンで真になり指標として意味を持たない。代わりに「誰が誰に名指しされたか」の
-  // 分布（被名指し回数）を集計し、特定キャラへの偏りが無いかを目視確認する。
+  // Issue #15対応（plan-c、AddresseeSelector）でtargetIdsは「特定1名」（1件配列）と
+  // 「全員向け」（話者以外の参加者IDすべて）の両方を取りうるようになった。ここでは
+  // 「誰が誰に名指しされたか」の分布（被名指し回数、全員向けターンは対象者全員分カウント
+  // される）を集計し、特定キャラへの偏りが無いかを目視確認する。
   const targetedCounts = new Map<string, number>();
   const relationshipRanges = new Map<
     string,
@@ -157,8 +158,14 @@ async function main(): Promise<void> {
     for (const targetId of turn.targetIds ?? []) {
       targetedCounts.set(targetId, (targetedCounts.get(targetId) ?? 0) + 1);
     }
+    // isEveryone判定はConversationManager内部にしか無いため、ここではtargetIdsの件数が
+    // 「話者以外の参加者全員」と一致するかどうかで「全員向け」ターンを判別して表示する
+    // （Issue #15対応、plan-c）。
+    const isEveryoneTurn =
+      participantIds.length > 2 && (turn.targetIds?.length ?? 0) >= participantIds.length - 1;
+    const targetLabel = isEveryoneTurn ? '(全員)' : (turn.targetIds?.join(',') ?? '(全員)');
     console.log(
-      `[turn ${turn.turnNo}] ${turn.speakerId}→${turn.targetIds?.join(',') ?? '(全員)'} ` +
+      `[turn ${turn.turnNo}] ${turn.speakerId}→${targetLabel} ` +
         `(${turn.dialogueAct}, topic=${turn.topicId}): ${turn.utterance}`,
     );
   });

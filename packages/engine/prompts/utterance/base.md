@@ -13,11 +13,15 @@
 
 - 感情: {{emotion}}
 - 話し方の補正（敬語レベル・距離感・呼び方）: {{speakingStyle}}
-- 会話相手: {{targetName}}（呼び方: {{addressTerm}}）
+- 会話相手: {{targetName}}
 
 ## 今回の発話行為
 
 - Dialogue Act: {{dialogueAct}}
+
+## 呼びかけについて
+
+{{addressingInstruction}}
 
 ## 現在の話題
 

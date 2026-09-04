@@ -6,6 +6,10 @@ export interface RecentUtterance {
   speakerId: string;
   utterance: string;
   turnNo: number;
+  // Issue #15対応（plan-c、AddresseeSelector）: このターンの発話が誰に向けられていたかを
+  // 保持する。TurnResult.targetIdsをそのまま引き継ぐ（全員向け発話の場合は話者以外の
+  // 参加者全員のIDが入る）。AddresseeSelectorの発話頻度バランス算出（直近呼びかけ回数）に使う。
+  targetIds: string[];
 }
 
 /**

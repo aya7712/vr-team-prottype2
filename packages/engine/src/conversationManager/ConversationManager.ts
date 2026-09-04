@@ -16,6 +16,7 @@ import type { CharacterState } from '../types/character.js';
 import type { RelationshipContext } from '../relationship/types.js';
 import type { MemoryItem } from '../types/memory.js';
 import { SpeakerSelector } from './SpeakerSelector.js';
+import { AddresseeSelector } from './AddresseeSelector.js';
 import { EndConditionEvaluator } from './EndConditionEvaluator.js';
 import { TopicBranchMerger } from './TopicBranchMerger.js';
 import type { SessionState } from './types.js';
@@ -34,6 +35,21 @@ const ACT_TO_TOPIC_EVENT: Partial<
   deepDive: 'newInfo',
   fillSilence: 'prolonged',
 };
+
+// Issue #15対応（plan-c、AddresseeSelector）: AddresseeSelectorが特定の相手を選んだ
+// （isEveryone===false）ターンのうち、どのDialogue Actなら「名前を呼びかけてから話す」
+// 指示をプロンプトに加えるかの対象集合。相手個人に向いた行為（質問・回答・否定・ツッコミ・
+// 深掘り）を対象とし、話題転換・沈黙埋め・体験談等の場全体向けの行為は対象外とする
+// （features.md/class-design.mdに数値・対象Actの仕様が無いため実装者判断で設定した、
+// implementation-rules.md 9章）。自己レビュー（code-reviewスキル）対応: 質問への
+// 回答（answer）は「誰に答えているか」が最も名指しされるべき行為であるため追加した。
+const NAME_CALLOUT_ACTS = new Set<DialogueAct>([
+  'question',
+  'answer',
+  'deny',
+  'tsukkomi',
+  'deepDive',
+]);
 
 /**
  * F6全体のオーケストレーション（1ターンの実行フロー）。
@@ -67,6 +83,12 @@ export class ConversationManager {
     // 全6ペアのtrust/intimacyが変化しないことから発覚したため、ここで配線する。
     private readonly relationshipUpdater: RelationshipUpdater = new RelationshipUpdater(),
     private readonly eventBus?: EngineEventBus,
+    // Issue #15対応（plan-c）: 発話生成前に呼びかけ相手を能動的に決定する（F6.2の
+    // 「誰に話すか」部分）。speakerSelectorと同様、relationshipManagerを束縛した
+    // インスタンスをデフォルト値として構築する。
+    private readonly addresseeSelector: AddresseeSelector = new AddresseeSelector(
+      relationshipManager,
+    ),
   ) {}
 
   async runTurn(sessionState: SessionState): Promise<TurnResult> {
@@ -79,15 +101,21 @@ export class ConversationManager {
         [...this.characterBrains.entries()].map(([id, brain]) => [id, brain.getState()]),
       ),
     });
-    // 話しかける相手はT29時点では「直前の話者」をデフォルトとする（自然な返答の宛先として
-    // 最も妥当なため）。3〜4体構成での話しかけ相手の高度な決定（複数人への同時発話等）は
-    // F6.2の範囲外（Speaker Selectionは「誰が話すか」の決定であり「誰に話すか」は別課題）
-    // として扱う（実装者判断、implementation-rules.md 9章）。
-    const targetId =
-      sessionState.previousSpeakerId ?? sessionState.participantIds.find((id) => id !== speakerId);
-    if (!targetId) {
-      throw new Error('ConversationManager: 話者と異なるtargetIdが必要です');
-    }
+    // Issue #15対応（plan-c）: 発話生成前に呼びかけ相手を能動的に決定する（F6.2「誰に話すか」）。
+    // T29時点までは「直前の話者」を機械的にtargetIdとするだけだったため、3人以上の会話で
+    // 名指しされたはずのキャラクターではなく別のキャラクターが応答してしまう問題があった
+    // （Issue #15）。AddresseeSelectorが関係性（intimacy）・直近の呼びかけ頻度バランスを
+    // 考慮してスコア化し、1名（またはisEveryone=trueで「全員向け」）を決定する。
+    // 生成後のresult.targetIdsはここで決定したaddresseeをそのまま採用し、発話テキストの
+    // 事後解析はしない。
+    const addressee = this.addresseeSelector.select({
+      speakerId,
+      participantIds: sessionState.participantIds,
+      recentTargetIds: sessionState.recentUtterances.flatMap((u) => u.targetIds),
+      previousSpeakerId: sessionState.previousSpeakerId,
+      previousTargetIds: sessionState.previousTargetIds,
+    });
+    const targetId = addressee.targetId;
 
     const nextTurnNo = sessionState.turnNo + 1;
     this.eventBus?.emit('turn:start', { turnNo: nextTurnNo, speakerCandidateIds: [speakerId] });
@@ -151,6 +179,7 @@ export class ConversationManager {
       relationshipContext,
       retrievedMemories,
       topic,
+      addressee.isEveryone,
     );
     const speakerLlmConfig = this.characterDefs.get(speakerId)?.llm ?? null;
     const rawOutput = await this.llmClient.complete(prompt, {
@@ -160,11 +189,17 @@ export class ConversationManager {
     const utterance = this.outputParser.extractUtterance(rawOutput);
     this.eventBus?.emit('layer:llm', { prompt, rawOutput });
 
+    // isEveryone===trueの発話は参加者全員（話者以外）に向けたものとして扱う
+    // （AddresseeSelectorが決定したaddresseeをそのまま採用し、事後のテキスト解析はしない）。
+    const targetIds = addressee.isEveryone
+      ? sessionState.participantIds.filter((id) => id !== speakerId)
+      : [targetId];
+
     const result: TurnResult = {
       sessionId: sessionState.sessionId,
       turnNo: nextTurnNo,
       speakerId,
-      targetIds: [targetId],
+      targetIds,
       topicId: topic.id,
       dialogueAct: act,
       utterance,
@@ -177,7 +212,7 @@ export class ConversationManager {
     sessionState.previousTargetIds = result.targetIds;
     sessionState.recentUtterances = [
       ...sessionState.recentUtterances,
-      { speakerId, utterance, turnNo: nextTurnNo },
+      { speakerId, utterance, turnNo: nextTurnNo, targetIds },
     ].slice(-5);
     sessionState.conversationStateManager.updateAfterTurn(act, topicScore);
     this.relationshipUpdater.applyTurnResult(this.relationshipManager.getGraph(), result);
@@ -284,6 +319,7 @@ export class ConversationManager {
     relationshipContext: RelationshipContext,
     retrievedMemories: MemoryItem[],
     topic: Topic,
+    isEveryone: boolean,
   ): string {
     const speakerDef = this.characterDefs.get(speakerId);
     const targetDef = this.characterDefs.get(targetId);
@@ -296,6 +332,25 @@ export class ConversationManager {
       .map((u) => `${this.characterDefs.get(u.speakerId)?.name ?? u.speakerId}: ${u.utterance}`)
       .join('\n');
 
+    const targetLabel = targetDef?.name ?? targetId;
+    // 自己レビュー対応（code-reviewスキル、Issue #15 plan-c）: isEveryone===trueの場合、
+    // 以前は「会話相手: <代表1名>（呼び方: ...）」がaddressingInstruction（「特定の名前を
+    // 呼びかけなくてよい」）と矛盾していた。全員向けターンでは代表targetIdの個人名・呼び方を
+    // プロンプトに出さず「その場にいる参加者全員」とだけ伝える（内部計算上の代表targetId自体は
+    // relationshipContext等の既存処理にそのまま使い続ける）。
+    const targetName = isEveryone
+      ? 'その場にいる参加者全員'
+      : `${targetLabel}（呼び方: ${relationshipContext.addressTerm}）`;
+
+    // Issue #15対応（plan-c）: AddresseeSelectorが特定の相手を選び、かつそれが相手個人に
+    // 向いた行為（NAME_CALLOUT_ACTS）の場合は、実際に名前を呼んでから話すよう誘導する。
+    // これにより次ターンのSpeakerSelector（NAMED_BONUS）が意図した相手を選びやすくなる
+    // （previousTargetIdsが常に意味のある値を持つようになるため）。
+    const addressingInstruction =
+      !isEveryone && NAME_CALLOUT_ACTS.has(act)
+        ? `「${targetLabel}」の名前を呼びかけてから話してください（例:「${targetLabel}、〜」）。`
+        : '特定の名前を呼びかける必要はありません。自然に話してください。';
+
     return this.promptBuilder.build('utterance/base', {
       characterName: speakerDef.name,
       personality: speakerDef.personality,
@@ -303,8 +358,8 @@ export class ConversationManager {
       firstPerson: speakerDef.firstPerson ?? '',
       emotion: characterState.emotion.label,
       speakingStyle: `敬語レベル${characterState.speakingStyle.honorificLevel.toFixed(1)}/距離感${characterState.speakingStyle.distance.toFixed(1)}`,
-      targetName: targetDef?.name ?? targetId,
-      addressTerm: relationshipContext.addressTerm,
+      targetName,
+      addressingInstruction,
       dialogueAct: act,
       topicLabel: topic.label,
       retrievedMemory: retrievedMemories.map((m) => m.summary).join('\n') || '(なし)',
