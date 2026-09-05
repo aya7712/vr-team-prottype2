@@ -15,7 +15,7 @@ import type { TurnResult } from '../types/turn.js';
 import type { CharacterState } from '../types/character.js';
 import type { RelationshipContext } from '../relationship/types.js';
 import type { MemoryItem } from '../types/memory.js';
-import { SpeakerSelector } from './SpeakerSelector.js';
+import { SpeakerSelector, RECENT_WINDOW_SIZE } from './SpeakerSelector.js';
 import { EndConditionEvaluator } from './EndConditionEvaluator.js';
 import { TopicBranchMerger } from './TopicBranchMerger.js';
 import type { SessionState } from './types.js';
@@ -175,10 +175,15 @@ export class ConversationManager {
     sessionState.previousAct = act;
     sessionState.previousSpeakerId = speakerId;
     sessionState.previousTargetIds = result.targetIds;
+    // T44 (Issue #16 plan-a): SpeakerSelectorの発話頻度バランス補正がRECENT_WINDOW_SIZE
+    // ターン分の履歴を必要とするため、短期履歴の保持件数もそれに合わせる（従来は5件固定で
+    // SpeakerSelector側のウィンドウ拡張が実質的に無意味になっていた）。プロンプトに含める
+    // 直近対話（recentDialogue、buildUtterancePrompt参照）は引き続き直近3件のみを使うため、
+    // 保持件数を増やしてもLLMへのプロンプトサイズには影響しない。
     sessionState.recentUtterances = [
       ...sessionState.recentUtterances,
       { speakerId, utterance, turnNo: nextTurnNo },
-    ].slice(-5);
+    ].slice(-RECENT_WINDOW_SIZE);
     sessionState.conversationStateManager.updateAfterTurn(act, topicScore);
     this.relationshipUpdater.applyTurnResult(this.relationshipManager.getGraph(), result);
 

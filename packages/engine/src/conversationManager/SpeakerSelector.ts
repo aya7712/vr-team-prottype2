@@ -14,8 +14,23 @@ export interface SpeakerSelectionContext {
 }
 
 const NAMED_BONUS = 2.0;
-const FREQUENCY_WEIGHT = 0.3;
-const RECENT_WINDOW_SIZE = 4;
+// T44 (Issue #16 plan-a): ウィンドウ拡大(4→12)に伴い、頻度ペナルティの最大振れ幅
+// (FREQUENCY_WEIGHT * RECENT_WINDOW_SIZE)がNAMED_BONUSを上回らないよう、
+// 0.3から0.15に下げた（独立レビューでの指摘: 0.3のままだと直近ウィンドウの
+// ほとんどを占める「名指しされた候補」が、直近0回発話の「名指しされていない候補」に
+// スコアで逆転され、features.md F6.2が定める「名指しされた候補は最優先」という
+// 既存の不変条件が崩れるケースが存在した）。0.15なら最大振れ幅は1.8
+// (<NAMED_BONUS=2.0)に収まり、この逆転は起きない
+// （実測: occurrences=11・名指しなしの対抗候補がoccurrences=0という最悪ケースでも
+// 名指しされた候補のスコアが上回ることをスクリプトで確認済み）。
+const FREQUENCY_WEIGHT = 0.15;
+// T44 (Issue #16 plan-a): 発話バランス補正の参照ウィンドウ。旧実装は直近4ターンのみを
+// 見ており、「二人だけで10ターン以上話し続ける」ような長時間の偏りに対して補正が
+// 効かなかった（4ターンより前の偏りは可視化されないため）。直近10〜12ターン程度に
+// 広げることで、短い自然な往復（2〜3ターンのやり取り）は許容しつつ、長時間の独占には
+// 補正が効くようにする。この定数はConversationManagerの短期履歴保持件数
+// （SessionState.recentUtterances）と対応させる必要があるため、exportして共有する。
+export const RECENT_WINDOW_SIZE = 12;
 // features.md F6.2の「積極性（Personality）」はtalkative等の性格特性を想定しているが、
 // CharacterDefRecord.personalityは自由記述テキストであり、CharacterState（F1）にも
 // 構造化された「積極性」フィールドが存在しない。そのため、既にCharacterBrainが
@@ -74,9 +89,18 @@ export class SpeakerSelector {
       score += NAMED_BONUS;
     }
 
+    // T44 (Issue #16 plan-a): 直近RECENT_WINDOW_SIZEターンにおける発話頻度を見て、
+    // 発話が少ないほど加点する。ペナルティ（満額からの減点）を発話回数(occurrences)の
+    // 二乗に比例させることで、旧実装の線形補正（発話回数の増分にそのまま比例して減点）
+    // より非線形（凸関数）なカーブになる。2〜3回程度の短い発話（自然な短い往復）への
+    // 減点は小さく抑えつつ、直近ウィンドウの大半を占めるような長時間の独占には
+    // 急激に（加速度的に）減点が効くようにするのが狙い。分母は実際の履歴件数ではなく
+    // 定数RECENT_WINDOW_SIZEを使うことで、会話開始直後（履歴が短い）でも0除算を避けつつ
+    // 全候補が同一の満額から始まる（旧実装と同じ考え方）。
     const window = recentSpeakerIds.slice(-RECENT_WINDOW_SIZE);
     const occurrences = window.filter((id) => id === candidateId).length;
-    score += (RECENT_WINDOW_SIZE - occurrences) * FREQUENCY_WEIGHT;
+    score +=
+      FREQUENCY_WEIGHT * (RECENT_WINDOW_SIZE - (occurrences * occurrences) / RECENT_WINDOW_SIZE);
 
     const energy = characterStates.get(candidateId)?.energy;
     if (energy !== undefined) {
@@ -85,7 +109,19 @@ export class SpeakerSelector {
 
     if (this.relationshipManager && previousSpeakerId) {
       const { edge } = this.relationshipManager.resolve(previousSpeakerId, candidateId);
-      score += edge.intimacy * RELATIONSHIP_WEIGHT;
+      // T44 (Issue #16 plan-a): RelationshipUpdaterは同じペアが会話するたびにintimacyを
+      // 上げるため、intimacyをそのまま加点し続けると「話すほど選ばれやすくなり、選ばれる
+      // ほど話す」正のフィードバック（richer-get-richer）が生じ、Issue #16の偏りの主因に
+      // なっていた。直近ウィンドウ内で(直前の話者, candidate)のペアがどれだけの割合を
+      // 占めているか(pairShare)を見て、そのペアが直近を支配しているほど関係性ボーナスを
+      // 減衰させる（pairShare=1＝ウィンドウ全てがこのペア→ボーナス0、
+      // pairShare=0＝このペアは直近に登場していない→ボーナスは従来通り）。
+      const pairOccurrences = window.filter(
+        (id) => id === previousSpeakerId || id === candidateId,
+      ).length;
+      const pairShare = pairOccurrences / RECENT_WINDOW_SIZE;
+      const relationshipDecay = Math.max(0, 1 - pairShare);
+      score += relationshipDecay * edge.intimacy * RELATIONSHIP_WEIGHT;
     }
 
     return score;
