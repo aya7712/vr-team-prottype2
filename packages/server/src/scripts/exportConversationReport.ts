@@ -7,6 +7,7 @@ import type {
   LlmLayerPayload,
   MemoryLayerPayload,
   RelationshipLayerPayload,
+  SpeakerBalanceLayerPayload,
   TopicLayerPayload,
 } from '@prottype2/engine';
 import { openMigratedDatabase } from '../db/migrate.js';
@@ -113,6 +114,28 @@ function renderMemory(payload: MemoryLayerPayload | undefined): string {
     </ul>`;
 }
 
+// Issue #16対応（plan-c、T44）: SpeakerBalanceAdvisorの判定結果（正当化されたか・
+// 推奨話者・判定理由・審査プロンプト/生出力）を目視確認できるようにする。旧セッションの
+// ログには`speakerBalance`レイヤー自体が存在しないため、その場合は何も表示しない
+// （既存レポートとの互換性を保つ、renderToneReview相当のガードと同じ考え方）。
+function renderSpeakerBalance(payload: SpeakerBalanceLayerPayload | undefined): string {
+  if (!payload) return '<p class="muted">データがありません。</p>';
+  const statusLabel = payload.error
+    ? `判定エラー（補正なしにフォールバック）: ${escapeHtml(payload.error)}`
+    : payload.rawOutput === null
+      ? '判定材料なし（会話開始直後等、判定スキップ）'
+      : payload.justified
+        ? '偏りは内容的に正当（頻度バランス補正を緩和）'
+        : payload.recommendedSpeakerId
+          ? `理由のない偏り: ${escapeHtml(payload.recommendedSpeakerId)}を推奨`
+          : '偏りなし、または推奨話者なし';
+  return `
+    <p class="speaker-balance-status ${payload.justified ? 'speaker-balance-justified' : ''}">${statusLabel}</p>
+    ${payload.reason ? `<p class="speaker-balance-reason">判定理由: ${escapeHtml(payload.reason)}</p>` : ''}
+    <details><summary>審査プロンプト全文</summary><pre class="mono">${escapeHtml(payload.prompt)}</pre></details>
+    <details><summary>審査LLM生出力</summary><pre class="mono">${escapeHtml(payload.rawOutput ?? '(なし)')}</pre></details>`;
+}
+
 function renderLlm(payload: LlmLayerPayload | undefined): string {
   if (!payload) return '<p class="muted">データがありません。</p>';
   return `
@@ -145,6 +168,10 @@ export function renderConversationReportHtml(params: {
       const planner = findLayerPayload<DialoguePlannerLayerPayload>(layerEvents, 'dialoguePlanner');
       const memory = findLayerPayload<MemoryLayerPayload>(layerEvents, 'memory');
       const llm = findLayerPayload<LlmLayerPayload>(layerEvents, 'llm');
+      const speakerBalance = findLayerPayload<SpeakerBalanceLayerPayload>(
+        layerEvents,
+        'speakerBalance',
+      );
 
       return `
       <article class="turn" id="turn-${turn.turnNo}">
@@ -152,12 +179,14 @@ export function renderConversationReportHtml(params: {
           <span class="turn-no">#${turn.turnNo}</span>
           <span class="speaker" style="color:${characterColor(turn.speakerId)}">${escapeHtml(characterName(turn.speakerId))}</span>
           <span class="dialogue-act">${escapeHtml(turn.dialogueAct)}</span>
+          ${speakerBalance?.recommendedSpeakerId && !speakerBalance.justified ? `<span class="speaker-balance-badge" title="SpeakerBalanceAdvisorが${escapeHtml(characterName(speakerBalance.recommendedSpeakerId))}を推奨">⚖️次話者提案あり</span>` : ''}
           ${feedback ? `<span class="feedback feedback-${feedback.rating}">${feedback.rating === 'natural' ? '👍 自然' : '👎 不自然'}</span>` : ''}
         </header>
         <p class="utterance">${escapeHtml(turn.utterance)}</p>
         ${feedback?.comment ? `<p class="feedback-comment">コメント: ${escapeHtml(feedback.comment)}</p>` : ''}
         <details class="layer-details">
           <summary>詳細レイヤーを見る</summary>
+          <section><h3>Speaker Balance（発話バランス判定）</h3>${renderSpeakerBalance(speakerBalance)}</section>
           <section><h3>Character State</h3>${renderCharacterState(character)}</section>
           <section><h3>Topic</h3>${renderTopic(topic)}</section>
           <section><h3>Relationship</h3>${renderRelationship(relationship)}</section>
@@ -177,6 +206,29 @@ export function renderConversationReportHtml(params: {
 <title>${escapeHtml(params.title)}</title>
 <style>
 ${tokensCss}
+/* tokens.cssはprefers-color-schemeのみに対応している。Artifactとして公開する場合、
+   ビューア側の明示的なテーマ切り替え（data-theme属性）にも追従できるよう、
+   同じダーク値をここで補う（tokens.css自体はpackages/uiの共有資産のため変更しない）。 */
+:root[data-theme='dark'] {
+  --color-bg: #1a1a1e;
+  --color-surface: #232327;
+  --color-border: #3a3a40;
+  --color-text: #f0f0f2;
+  --color-text-muted: #a2a2a8;
+  --color-accent: #6ea0ff;
+  --data-scale-low: #123a63;
+  --data-scale-high: #8fc2ff;
+}
+:root[data-theme='light'] {
+  --color-bg: #f7f7f8;
+  --color-surface: #ffffff;
+  --color-border: #d9d9dc;
+  --color-text: #1a1a1e;
+  --color-text-muted: #6b6b70;
+  --color-accent: #2f6fed;
+  --data-scale-low: #cde2fb;
+  --data-scale-high: #0d366b;
+}
 .report-header { padding: var(--space-3); border-bottom: 1px solid var(--color-border); }
 .report-header h1 { font-size: 18px; margin: 0 0 4px; }
 .report-header p { margin: 0; color: var(--color-text-muted); font-size: 12px; }
@@ -187,6 +239,10 @@ ${tokensCss}
 .dialogue-act { color: var(--color-text-muted); }
 .feedback-natural { color: #2e8b57; }
 .feedback-unnatural { color: #c0392b; }
+.speaker-balance-badge { color: #b8860b; }
+.speaker-balance-status { font-size: 12px; margin: 0 0 4px; }
+.speaker-balance-justified { color: #2e8b57; }
+.speaker-balance-reason { font-size: 12px; color: var(--color-text-muted); margin: 0 0 4px; }
 .utterance { font-size: 15px; margin: var(--space-1) 0; }
 .feedback-comment { font-size: 12px; color: var(--color-text-muted); }
 .layer-details summary { cursor: pointer; font-size: 12px; color: var(--color-accent); margin-top: 4px; }

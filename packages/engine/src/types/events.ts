@@ -9,6 +9,7 @@ import type { TurnResult } from './turn.js';
 // T13（EngineEventBus実装）着手時にここを正として運用するか見直すこと。
 export type LayerEventName =
   | 'turn:start'
+  | 'layer:speakerBalance'
   | 'layer:topic'
   | 'layer:relationship'
   | 'layer:character'
@@ -21,6 +22,22 @@ export type LayerEventName =
 export interface TurnStartPayload {
   turnNo: number;
   speakerCandidateIds: string[];
+}
+
+// Issue #16対応（plan-c、T44）: SpeakerBalanceAdvisor（F7、追加のLLM呼び出しによる
+// 発話バランスの意味的判定）の結果をログ・レポートで目視確認できるよう新設したレイヤー
+// イベント。ConversationManager.runTurnはturn:start発行直後にこれをemitする
+// （speakerSelector.selectNextの直前で計算した結果をここで初めて発行する。turn:startより
+// 前にemitすると、TurnOrchestrator.subscribePersistence（server層）がturn:start受信時に
+// pendingLayerEventsをリセットする実装のため、直後のリセットで消えてしまう）。
+export interface SpeakerBalanceLayerPayload {
+  prompt: string;
+  // 判定材料が無い（会話開始直後）/呼び出し失敗時はnull。
+  rawOutput: string | null;
+  justified: boolean;
+  recommendedSpeakerId: string | null;
+  reason: string;
+  error?: string;
 }
 
 export interface TopicLayerPayload {
@@ -67,6 +84,7 @@ export interface SessionEndPayload {
 
 export type LayerEvent =
   | { name: 'turn:start'; payload: TurnStartPayload }
+  | { name: 'layer:speakerBalance'; payload: SpeakerBalanceLayerPayload }
   | { name: 'layer:topic'; payload: TopicLayerPayload }
   | { name: 'layer:relationship'; payload: RelationshipLayerPayload }
   | { name: 'layer:character'; payload: CharacterLayerPayload }

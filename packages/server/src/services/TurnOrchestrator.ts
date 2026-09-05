@@ -59,6 +59,7 @@ function resolveEnginePromptsPath(): string {
 
 const DEFAULT_MAX_TURNS = 10;
 const PERSISTED_LAYERS: LayerName[] = [
+  'speakerBalance', // Issue #16対応（plan-c、T44）
   'topic',
   'relationship',
   'character',

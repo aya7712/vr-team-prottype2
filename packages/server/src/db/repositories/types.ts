@@ -37,7 +37,13 @@ export interface TurnRecord {
 }
 
 export type LayerName =
-  'topic' | 'relationship' | 'character' | 'dialoguePlanner' | 'memory' | 'llm';
+  | 'speakerBalance' // Issue #16対応（plan-c、T44）
+  | 'topic'
+  | 'relationship'
+  | 'character'
+  | 'dialoguePlanner'
+  | 'memory'
+  | 'llm';
 
 // `turn_layer_events`テーブルに対応するレコード（F8.1/F9.3）。
 export interface LayerEventRecord {

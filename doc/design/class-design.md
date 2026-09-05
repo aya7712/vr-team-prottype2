@@ -437,6 +437,7 @@ export class ConversationManager {
     private speakerSelector: SpeakerSelector,     // 2人会話では常に相手を返す実装でよい
     private endConditionEvaluator: EndConditionEvaluator,
     private eventBus?: EngineEventBus,             // F8.3。T13で本実装。テスト時は省略可
+    private speakerBalanceAdvisor?: SpeakerBalanceAdvisor, // Issue #16対応・T44。10.2章参照。既定値あり省略可
   ) {}
 
   // architecture.md 6章のシーケンスをそのまま実装するエントリポイント
@@ -502,8 +503,56 @@ export class PromptBuilder {
 |---|---|---|
 | `utterance/base.md` | セリフ生成の基本テンプレート（F7.1） | `{{characterName}}`, `{{personality}}`, `{{toneSample}}`, `{{firstPerson}}`, `{{emotion}}`, `{{speakingStyle}}`, `{{targetName}}`, `{{addressTerm}}`, `{{dialogueAct}}`, `{{retrievedMemory}}`, `{{recentDialogue}}` |
 | `utterance/with_shared_memory.md` | 共有記憶を参照させたい場合に`base.md`の出力へ追加で組み合わせるテンプレート | `{{baseInstruction}}`, `{{targetName}}`, `{{characterName}}`, `{{sharedMemory}}` |
+| `speakerBalance/advisor.md` | 発話者選択直前の発話バランス判定（Issue #16対応・plan-c、T44。`SpeakerBalanceAdvisor`が使用） | `{{participantList}}`, `{{recentDialogue}}` |
 
-T10時点では`utterance/`配下のみ作成した。`dialogueAct/candidate_selection.md`（F5.5、小型LLMによるAct候補提案の任意機能）はF5.5自体が未実装のため作成していない。
+T10時点では`utterance/`配下のみ作成した。`dialogueAct/candidate_selection.md`（F5.5、小型LLMによるAct候補提案の任意機能）はF5.5自体が未実装のため作成していない。`speakerBalance/advisor.md`はT44で追加した。
+
+### 10.2 SpeakerBalanceAdvisor（F7、Issue #16対応・plan-c、T44）
+
+```text
+llm/
+└── SpeakerBalanceAdvisor.ts   # 発話バランスの意味的判定（追加のLLM呼び出し1回）
+```
+
+```typescript
+export interface SpeakerBalanceParticipant {
+  characterId: string;
+  name: string;
+  recentSpeakCount: number; // SessionState.recentUtterances内でのこのキャラクターの発話回数
+}
+
+export interface SpeakerBalanceAdvisorInput {
+  participants: SpeakerBalanceParticipant[];
+  recentDialogue: string; // "名前: 発話"の行を改行で連結したもの。空文字列なら判定自体をスキップ
+  model?: string; // 直前の話者のCharacterDefRecord.llm.model（存在する場合）
+}
+
+export interface SpeakerBalanceAdvice {
+  justified: boolean;               // 偏りが内容（自分語り・二人の思い出話等）で正当化されるか
+  recommendedSpeakerId: string | null; // 正当化されない場合に推奨する次話者
+  reason: string;
+  prompt: string;
+  rawOutput: string | null;         // 判定スキップ/呼び出し失敗時はnull
+  error?: string;
+}
+
+export class SpeakerBalanceAdvisor {
+  constructor(
+    private promptBuilder: PromptBuilder,
+    private llmClient: LlmClient,
+  ) {}
+
+  async advise(input: SpeakerBalanceAdvisorInput): Promise<SpeakerBalanceAdvice>;
+}
+```
+
+Issue #16（「発言するキャラクターが偏っている」）への対応として、`ConversationManager.runTurn`は`speakerSelector.selectNext`の直前（ターンの冒頭）に、**参加者が3名以上の場合のみ**`speakerBalanceAdvisor.advise()`を1回呼び出す（自己レビュー対応。参加者が2名以下の場合、`SpeakerSelector.selectNext`は直前の話者以外の候補が1名しかないため`speakerBalanceAdvice`を一切参照せず即座に返す＝判定結果が結果に影響しえないため、無駄な追加LLM呼び出しを避けるガード）。参加者一覧（各キャラクターの直近発話回数込み）と直近の会話（`SessionState.recentUtterances`）を渡し、「現在の発話の偏りは内容によって正当化されるか、理由のない偏りか。理由がなければ発話機会の少ないキャラクターを1名提案せよ」という判定と提案を1回のLLM呼び出しで同時に行わせる（判定用・提案用で2回呼ばない）。
+
+結果（`justified`/`recommendedSpeakerId`）は`SpeakerSelector.SpeakerSelectionContext`の新しい任意フィールド`speakerBalanceAdvice`として`selectNext`に渡される。`SpeakerSelector`は`recommendedSpeakerId`が指定されたキャラクターのスコアにボーナスを加算し、`justified:true`の場合は既存の頻度バランス補正（`FREQUENCY_WEIGHT`）の強さを弱める（`SpeakerSelector.ts`のコメント参照）。
+
+ToneReviewer（PR #8、Issue #5対応）と同じ設計パターンを踏襲している: `SpeakerBalanceAdvisor`は`ConversationManager`のコンストラクタ末尾（`eventBus`の後）にoptional・default付きで追加した（`speakerBalanceAdvisor: SpeakerBalanceAdvisor = new SpeakerBalanceAdvisor(promptBuilder, llmClient)`）。既存呼び出し元（`TurnOrchestrator`等）の位置引数がずれないよう末尾に追加している。判定呼び出し（プロンプト構築〜`llmClient.complete`〜JSON解析）が失敗した場合は、`implementation-rules.md` 5章の「外部APIエラーは伝播させる」原則の例外として、判定なし（`justified:false`, `recommendedSpeakerId:null`、＝既存のSpeakerSelector挙動のまま）にフォールバックする。
+
+判定結果（`prompt`/`rawOutput`/`justified`/`recommendedSpeakerId`/`reason`/`error`）は、ToneReviewerが既存の`layer:llm`イベントに相乗りしたのとは異なり、新規のレイヤーイベント`layer:speakerBalance`（`types/events.ts`の`SpeakerBalanceLayerPayload`）として発行する（「話者選択の判定」は`layer:llm`（発話生成そのもの）とは異なる関心事のため独立させた）。`ConversationManager.runTurn`は`speakerSelector.selectNext`より前に判定を計算するが、`layer:speakerBalance`のemit自体は`turn:start`発行の直後に行う（`TurnOrchestrator.subscribePersistence`が`turn:start`受信時にそのターンのレイヤーイベントバッファをリセットする実装のため、`turn:start`より前にemitすると消えてしまうことをT44で発見した）。`exportConversationReport.ts`のレポートでも、判定理由・提案・審査プロンプト全文を目視確認できるようにした。
 
 ## 11. F8: ログ・イベント（`packages/engine/src/logging/`）
 
@@ -514,9 +563,10 @@ logging/
 
 ```typescript
 export type LayerEventName =
-  | 'turn:start' | 'layer:topic' | 'layer:relationship'
+  | 'turn:start' | 'layer:speakerBalance' | 'layer:topic' | 'layer:relationship'
   | 'layer:character' | 'layer:dialoguePlanner' | 'layer:memory'
-  | 'layer:llm' | 'turn:complete' | 'session:end'; // session:endはT41で追加
+  | 'layer:llm' | 'turn:complete' | 'session:end';
+  // session:endはT41で追加、layer:speakerBalanceはT44で追加
 
 export class EngineEventBus {
   on(event: LayerEventName, handler: (payload: unknown) => void): void;
