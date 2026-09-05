@@ -127,6 +127,54 @@ describe('SpeakerSelector', () => {
     expect(counts.char_b).toBeGreaterThan(counts.char_d);
   });
 
+  // Issue #16 (plan-b): 発話内容（DialogueAct/Topic/Memory）から見て話者ペアへの
+  // 発話集中が正当化されるかどうかで、発話頻度バランス補正の効き具合を変える。
+  describe('pairFocusJustified（Issue #16 plan-b）', () => {
+    it('pairFocusJustified: trueだと、直近よく話している候補が選ばれやすくなる（正当な偏りを妨げない）', () => {
+      // char_bだけが直近ずっと発話している状況（char_c/dはしばらく発話が無い）。
+      const recentSpeakerIds = ['char_a', 'char_b', 'char_a', 'char_b'];
+
+      const unjustifiedSelector = new SpeakerSelector(undefined, makeDeterministicRoll());
+      const unjustifiedCounts: Record<string, number> = { char_b: 0, char_c: 0, char_d: 0 };
+      for (let i = 0; i < SWEEP_STEPS; i++) {
+        unjustifiedCounts[
+          unjustifiedSelector.selectNext(
+            baseContext({ recentSpeakerIds, pairFocusJustified: false }),
+          )
+        ] += 1;
+      }
+
+      const justifiedSelector = new SpeakerSelector(undefined, makeDeterministicRoll());
+      const justifiedCounts: Record<string, number> = { char_b: 0, char_c: 0, char_d: 0 };
+      for (let i = 0; i < SWEEP_STEPS; i++) {
+        justifiedCounts[
+          justifiedSelector.selectNext(baseContext({ recentSpeakerIds, pairFocusJustified: true }))
+        ] += 1;
+      }
+
+      // pairFocusJustified: falseの場合と比べ、trueの場合の方が直近話者(char_b)の
+      // 選出比率が高い（＝バランス補正が緩んでいる）。
+      expect(justifiedCounts.char_b).toBeGreaterThan(unjustifiedCounts.char_b);
+    });
+
+    it('pairFocusJustifiedがundefinedの場合は既存の挙動（基準値）のまま変わらない', () => {
+      const recentSpeakerIds = ['char_a', 'char_b', 'char_a', 'char_b'];
+      const withUndefined = new SpeakerSelector(undefined, makeDeterministicRoll());
+      const withoutField = new SpeakerSelector(undefined, makeDeterministicRoll());
+
+      const countsA: Record<string, number> = { char_b: 0, char_c: 0, char_d: 0 };
+      const countsB: Record<string, number> = { char_b: 0, char_c: 0, char_d: 0 };
+      for (let i = 0; i < SWEEP_STEPS; i++) {
+        countsA[
+          withUndefined.selectNext(baseContext({ recentSpeakerIds, pairFocusJustified: undefined }))
+        ] += 1;
+        countsB[withoutField.selectNext(baseContext({ recentSpeakerIds }))] += 1;
+      }
+
+      expect(countsA).toEqual(countsB);
+    });
+  });
+
   it('積極性（energy）が高い候補ほど選ばれやすくなる', () => {
     const selector = new SpeakerSelector(undefined, makeDeterministicRoll());
     const characterStates = new Map(PARTICIPANTS.map((id) => [id, makeCharacterState({ id })]));

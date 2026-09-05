@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DialoguePlanner } from './DialoguePlanner.js';
+import { DialoguePlanner, isSelfNarrativeAct } from './DialoguePlanner.js';
 import { DialogueActCatalog } from './DialogueActCatalog.js';
 import { ScoreCalculator } from './ScoreCalculator.js';
 import { SoftmaxSelector } from './SoftmaxSelector.js';
@@ -84,5 +84,15 @@ describe('DialoguePlanner', () => {
       selectedActs.add(planner.planNext(context).act);
     }
     expect(selectedActs.size).toBeGreaterThan(1);
+  });
+
+  // Issue #16 (plan-b): SpeakerSelectorの発話頻度バランス補正を内容に応じて出し分ける
+  // シグナル（pairFocusJustified）の入力の1つ。
+  it('isSelfNarrativeActはstory/deepDiveのみtrueを返す（Issue #16 plan-b）', () => {
+    expect(isSelfNarrativeAct('story')).toBe(true);
+    expect(isSelfNarrativeAct('deepDive')).toBe(true);
+    expect(isSelfNarrativeAct('question')).toBe(false);
+    expect(isSelfNarrativeAct('joke')).toBe(false);
+    expect(isSelfNarrativeAct('topicShift')).toBe(false);
   });
 });

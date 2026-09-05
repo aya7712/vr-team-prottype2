@@ -31,4 +31,10 @@ export interface SessionState {
   // 分類対象として使い、「(会話開始)」プレースホルダーの代わりにこの文字列から
   // TopicTreeを開始する。
   initialTopic: string;
+  // Issue #16 (plan-b): 直前ターン（previousSpeakerId → previousTargetIds）の発話内容
+  // （DialogueAct・Topic・取得済み記憶）から見て、そのペアへの発話集中が正当化されるか
+  // どうかを表すシグナル。ConversationManager.runTurnがターンの最後に算出し、
+  // 次ターンのSpeakerSelector.selectNextが発話頻度バランス補正の強さを調整するために使う。
+  // 会話開始直後（previousSpeakerIdが無い）はundefinedのまま。
+  pairFocusJustified?: boolean;
 }
