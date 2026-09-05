@@ -139,4 +139,67 @@ describe('SpeakerSelector', () => {
     expect(counts.char_c).toBeGreaterThan(counts.char_b);
     expect(counts.char_c).toBeGreaterThan(counts.char_d);
   });
+
+  // Issue #16対応（plan-c、T44）: SpeakerBalanceAdvisorが提案したrecommendedSpeakerIdが
+  // SpeakerSelectorのスコアリングに反映されることを確認する。SpeakerBalanceAdvisor自体の
+  // 判定ロジックはSpeakerBalanceAdvisor.test.tsで個別に検証済みのため、ここでは
+  // SpeakerSelectionContext.speakerBalanceAdviceの配線のみを確認する。
+  describe('speakerBalanceAdvice（SpeakerBalanceAdvisorによる発話バランス判定）', () => {
+    it('recommendedSpeakerIdに指定されたキャラクターが最も高い頻度で選ばれる', () => {
+      const selector = new SpeakerSelector(undefined, makeDeterministicRoll());
+      const counts: Record<string, number> = { char_b: 0, char_c: 0, char_d: 0 };
+      for (let i = 0; i < SWEEP_STEPS; i++) {
+        counts[
+          selector.selectNext(
+            baseContext({
+              speakerBalanceAdvice: { justified: false, recommendedSpeakerId: 'char_d' },
+            }),
+          )
+        ] += 1;
+      }
+      expect(counts.char_d).toBeGreaterThan(counts.char_b);
+      expect(counts.char_d).toBeGreaterThan(counts.char_c);
+    });
+
+    it('justified:trueの場合、頻度バランス補正が弱まり直近よく話した候補も選ばれやすくなる', () => {
+      // char_bだけが直近ずっと話し続けている状況（頻度バランス補正が強く働けば
+      // char_bは選ばれにくいはずの状況）を作り、justified:falseとtrueで
+      // char_bの選ばれやすさが変化する（trueの方が選ばれやすくなる）ことを確認する。
+      const recentSpeakerIds = ['char_b', 'char_b', 'char_b', 'char_b'];
+
+      const selectorNotJustified = new SpeakerSelector(undefined, makeDeterministicRoll());
+      const countsNotJustified: Record<string, number> = { char_b: 0, char_c: 0, char_d: 0 };
+      for (let i = 0; i < SWEEP_STEPS; i++) {
+        countsNotJustified[
+          selectorNotJustified.selectNext(
+            baseContext({
+              recentSpeakerIds,
+              speakerBalanceAdvice: { justified: false, recommendedSpeakerId: null },
+            }),
+          )
+        ] += 1;
+      }
+
+      const selectorJustified = new SpeakerSelector(undefined, makeDeterministicRoll());
+      const countsJustified: Record<string, number> = { char_b: 0, char_c: 0, char_d: 0 };
+      for (let i = 0; i < SWEEP_STEPS; i++) {
+        countsJustified[
+          selectorJustified.selectNext(
+            baseContext({
+              recentSpeakerIds,
+              speakerBalanceAdvice: { justified: true, recommendedSpeakerId: null },
+            }),
+          )
+        ] += 1;
+      }
+
+      expect(countsJustified.char_b).toBeGreaterThan(countsNotJustified.char_b);
+    });
+
+    it('speakerBalanceAdvice省略時も既存挙動のまま動作する（後方互換）', () => {
+      const selector = new SpeakerSelector(undefined, () => 0.5);
+      const result = selector.selectNext(baseContext({ speakerBalanceAdvice: undefined }));
+      expect(PARTICIPANTS).toContain(result);
+    });
+  });
 });

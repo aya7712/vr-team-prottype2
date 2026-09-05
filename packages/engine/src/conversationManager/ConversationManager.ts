@@ -4,6 +4,7 @@ import type { RelationshipManager } from '../relationship/RelationshipManager.js
 import { RelationshipUpdater } from '../relationship/RelationshipUpdater.js';
 import type { MemoryRetriever } from '../memory/MemoryRetriever.js';
 import type { PromptBuilder, LlmClient, OutputParser } from '../llm/index.js';
+import { SpeakerBalanceAdvisor } from '../llm/index.js';
 import type { TopicClassifier } from '../topic/TopicClassifier.js';
 import type { TopicParameterUpdater } from '../topic/TopicParameterUpdater.js';
 import type { TopicContinuationScorer } from '../topic/TopicContinuationScorer.js';
@@ -44,6 +45,9 @@ const ACT_TO_TOPIC_EVENT: Partial<
  * - `characterDefs: Map<string, CharacterDefRecord>`（T04出力。CharacterState（F1）は
  *   キャラクター名等の静的情報を持たないため、プロンプト構築に必要な
  *   name/personality/toneSample/firstPerson/ngTopicsの参照用に追加した）
+ * - `speakerBalanceAdvisor: SpeakerBalanceAdvisor`（Issue #16対応、plan-c、T44。
+ *   話者選択の直前に、発話の偏りが内容的に正当化されるかを追加のLLM呼び出し1回で
+ *   判定する）
  */
 export class ConversationManager {
   constructor(
@@ -67,9 +71,50 @@ export class ConversationManager {
     // 全6ペアのtrust/intimacyが変化しないことから発覚したため、ここで配線する。
     private readonly relationshipUpdater: RelationshipUpdater = new RelationshipUpdater(),
     private readonly eventBus?: EngineEventBus,
+    // 末尾に追加した理由: ToneReviewer（PR #8、Issue #5対応）と同じ理由。`eventBus`が
+    // 既存呼び出し元（TurnOrchestrator等）で常に最後の実引数として明示的に渡されており、
+    // 途中に挿入すると位置引数がずれてeventBusに誤った値が渡ってしまう。`eventBus`の後に
+    // default付きで追加することで、既存呼び出し元は変更不要のまま（省略時はデフォルトが
+    // 使われる）新規依存を追加できる（実装者判断）。
+    private readonly speakerBalanceAdvisor: SpeakerBalanceAdvisor = new SpeakerBalanceAdvisor(
+      promptBuilder,
+      llmClient,
+    ),
   ) {}
 
   async runTurn(sessionState: SessionState): Promise<TurnResult> {
+    // Issue #16対応（plan-c、T44）: 話者選択（speakerSelector.selectNext）の直前に、
+    // 直近の会話履歴・参加者一覧・各キャラクターの直近発話回数をSpeakerBalanceAdvisorへ
+    // 渡し、発話の偏りが内容的に正当化されるかを判定させる。結果はこの後のselectNextへの
+    // 入力として使う。layer:speakerBalanceイベント自体は、ここではなくturn:start発行後に
+    // emitする（下記参照）。
+    // 自己レビュー（code-reviewスキル）指摘への対応: SpeakerSelector.selectNextは
+    // 参加者が2名以下の場合、直前の話者以外の候補が1名しかないため、スコアリング
+    // （speakerBalanceAdviceの参照箇所）自体を経由せず即座にその1名を返す
+    // （SpeakerSelector.ts参照）。つまり2体会話ではspeakerBalanceAdviceが結果に
+    // 一切影響しえないため、無駄な追加LLM呼び出し（レイテンシ・コスト増）を避けるべく
+    // 参加者が3名以上の場合のみSpeakerBalanceAdvisorを呼び出す。
+    const recentUtterances = sessionState.recentUtterances;
+    const speakerBalanceAdvice =
+      sessionState.participantIds.length >= 3
+        ? await this.speakerBalanceAdvisor.advise({
+            participants: sessionState.participantIds.map((id) => ({
+              characterId: id,
+              name: this.characterDefs.get(id)?.name ?? id,
+              recentSpeakCount: recentUtterances.filter((u) => u.speakerId === id).length,
+            })),
+            recentDialogue: recentUtterances
+              .map(
+                (u) =>
+                  `${this.characterDefs.get(u.speakerId)?.name ?? u.speakerId}: ${u.utterance}`,
+              )
+              .join('\n'),
+            model: sessionState.previousSpeakerId
+              ? (this.characterDefs.get(sessionState.previousSpeakerId)?.llm?.model ?? undefined)
+              : undefined,
+          })
+        : { justified: false, recommendedSpeakerId: null, reason: '', prompt: '', rawOutput: null };
+
     const speakerId = this.speakerSelector.selectNext({
       participantIds: sessionState.participantIds,
       previousSpeakerId: sessionState.previousSpeakerId,
@@ -78,6 +123,10 @@ export class ConversationManager {
       characterStates: new Map(
         [...this.characterBrains.entries()].map(([id, brain]) => [id, brain.getState()]),
       ),
+      speakerBalanceAdvice: {
+        justified: speakerBalanceAdvice.justified,
+        recommendedSpeakerId: speakerBalanceAdvice.recommendedSpeakerId,
+      },
     });
     // 話しかける相手はT29時点では「直前の話者」をデフォルトとする（自然な返答の宛先として
     // 最も妥当なため）。3〜4体構成での話しかけ相手の高度な決定（複数人への同時発話等）は
@@ -91,6 +140,19 @@ export class ConversationManager {
 
     const nextTurnNo = sessionState.turnNo + 1;
     this.eventBus?.emit('turn:start', { turnNo: nextTurnNo, speakerCandidateIds: [speakerId] });
+    // speakerBalanceAdvice自体はspeakerSelector.selectNextより前に計算済みだが、emit自体は
+    // ここ（turn:start発行の直後）で行う。server層のTurnOrchestrator.subscribePersistenceは
+    // turn:start受信時にそのターンのpendingLayerEventsバッファをリセットする実装のため、
+    // turn:startより前にemitすると、直後のリセットでこのイベントが消えてしまう
+    // （実装者判断で発見。他のlayer:*イベントは元々すべてturn:startの後段で発行されている）。
+    this.eventBus?.emit('layer:speakerBalance', {
+      prompt: speakerBalanceAdvice.prompt,
+      rawOutput: speakerBalanceAdvice.rawOutput,
+      justified: speakerBalanceAdvice.justified,
+      recommendedSpeakerId: speakerBalanceAdvice.recommendedSpeakerId,
+      reason: speakerBalanceAdvice.reason,
+      error: speakerBalanceAdvice.error,
+    });
 
     const topic = await this.resolveTopic(sessionState, speakerId, targetId);
     const topicScore = this.continuationScorer.score(topic);

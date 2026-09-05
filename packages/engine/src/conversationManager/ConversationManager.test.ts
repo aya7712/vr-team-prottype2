@@ -31,6 +31,7 @@ import { PromptBuilder } from '../llm/PromptBuilder.js';
 import { OutputParser } from '../llm/OutputParser.js';
 import type { PromptTemplateLoader } from '../llm/PromptTemplateLoader.js';
 import type { LlmClient } from '../llm/LlmClient.js';
+import type { SpeakerBalanceAdvisor } from '../llm/SpeakerBalanceAdvisor.js';
 import type { CharacterDefRecord } from '../data/types.js';
 
 function makeCharacterDef(
@@ -84,6 +85,7 @@ function makeConversationManager(
   llmResponses: string[],
   eventBus?: EngineEventBus,
   characterLlmConfigs?: Partial<Record<'char_a' | 'char_b', CharacterDefRecord['llm']>>,
+  speakerBalanceAdvisor?: SpeakerBalanceAdvisor,
 ): { manager: ConversationManager; llmClient: LlmClient; relationshipGraph: RelationshipGraph } {
   const relationshipGraph = new RelationshipGraph();
   relationshipGraph.addEdge({
@@ -128,11 +130,18 @@ function makeConversationManager(
   const characterDefs = new Map<string, CharacterDefRecord>([
     ['char_a', makeCharacterDef('char_a', '宇良', characterLlmConfigs?.char_a ?? null)],
     ['char_b', makeCharacterDef('char_b', '楽', characterLlmConfigs?.char_b ?? null)],
+    // Issue #16対応（plan-c、T44）: SpeakerBalanceAdvisorは参加者が3名以上の場合のみ
+    // 呼ばれる（2名では常に交互発話になり判定結果が結果に影響しえないため、
+    // ConversationManager.runTurn側で3名未満は呼び出し自体をスキップする）。
+    // そのテストのために3人目を追加した（既存の2人構成のテストには影響しない。
+    // sessionState.participantIdsに含めない限りSpeakerSelectorの候補にならないため）。
+    ['char_c', makeCharacterDef('char_c', '理久', null)],
   ]);
 
   const characterBrains = new Map([
     ['char_a', makeCharacterBrain('char_a')],
     ['char_b', makeCharacterBrain('char_b')],
+    ['char_c', makeCharacterBrain('char_c')],
   ]);
 
   const manager = new ConversationManager(
@@ -152,14 +161,15 @@ function makeConversationManager(
     new TopicBranchMerger(),
     new RelationshipUpdater(),
     eventBus,
+    speakerBalanceAdvisor,
   );
   return { manager, llmClient, relationshipGraph };
 }
 
-function makeSessionState(): SessionState {
+function makeSessionState(participantIds: string[] = ['char_a', 'char_b']): SessionState {
   return {
     sessionId: 'session_1',
-    participantIds: ['char_a', 'char_b'],
+    participantIds,
     topicTree: new TopicTree(),
     conversationStateManager: new ConversationStateManager(new RhythmTracker()),
     turnNo: 0,
@@ -354,6 +364,215 @@ describe('ConversationManager', () => {
     expect(llmClient.complete).toHaveBeenNthCalledWith(2, expect.any(String), {
       model: 'model-b',
       temperature: 0.9,
+    });
+  });
+
+  // Issue #16対応（plan-c、T44）: SpeakerBalanceAdvisorによる発話バランス判定の
+  // ConversationManagerへの配線を確認する。SpeakerBalanceAdvisor自体の判定・
+  // フォールバックロジックはSpeakerBalanceAdvisor.test.tsで、SpeakerSelectorの
+  // スコアリングへの反映はSpeakerSelector.test.tsで個別に検証済みのため、ここでは
+  // ConversationManagerが判定結果を正しく計算・伝播しているかのみを確認する。
+  describe('SpeakerBalanceAdvisor（発話バランス判定）の配線', () => {
+    it('layer:speakerBalanceイベントのpayloadに判定結果が反映される', async () => {
+      const eventBus = new EngineEventBus();
+      const speakerBalanceAdvisor = {
+        advise: vi.fn().mockResolvedValue({
+          justified: false,
+          recommendedSpeakerId: 'char_b',
+          reason: 'char_aばかり話している',
+          prompt: 'speaker-balance-prompt',
+          rawOutput: 'raw-advisor-output',
+        }),
+      } as unknown as SpeakerBalanceAdvisor;
+      const { manager } = makeConversationManager(
+        ['「一言目」'],
+        eventBus,
+        undefined,
+        speakerBalanceAdvisor,
+      );
+      // SpeakerBalanceAdvisorは参加者3名以上でのみ呼ばれる（2体会話では常に交互発話に
+      // なり判定結果が影響しえないため、ConversationManager.runTurn側でスキップされる）。
+      const sessionState = makeSessionState(['char_a', 'char_b', 'char_c']);
+
+      let payload: unknown;
+      eventBus.on('layer:speakerBalance', (p) => {
+        payload = p;
+      });
+      await manager.runTurn(sessionState);
+
+      expect(payload).toEqual({
+        prompt: 'speaker-balance-prompt',
+        rawOutput: 'raw-advisor-output',
+        justified: false,
+        recommendedSpeakerId: 'char_b',
+        reason: 'char_aばかり話している',
+        error: undefined,
+      });
+    });
+
+    it('layer:speakerBalanceは、turn:startの直後・他のlayer:*イベントより前に発行される', async () => {
+      const eventBus = new EngineEventBus();
+      const speakerBalanceAdvisor = {
+        advise: vi.fn().mockResolvedValue({
+          justified: true,
+          recommendedSpeakerId: null,
+          reason: '',
+          prompt: 'p',
+          rawOutput: 'r',
+        }),
+      } as unknown as SpeakerBalanceAdvisor;
+      const { manager } = makeConversationManager(
+        ['「一言目」'],
+        eventBus,
+        undefined,
+        speakerBalanceAdvisor,
+      );
+      const sessionState = makeSessionState(['char_a', 'char_b', 'char_c']);
+
+      const emittedEventNames: string[] = [];
+      for (const name of ['turn:start', 'layer:speakerBalance', 'layer:topic'] as const) {
+        eventBus.on(name, () => emittedEventNames.push(name));
+      }
+      await manager.runTurn(sessionState);
+
+      expect(emittedEventNames).toEqual(['turn:start', 'layer:speakerBalance', 'layer:topic']);
+    });
+
+    it('SpeakerSelector.selectNextへspeakerBalanceAdvisorの判定結果が渡される', async () => {
+      const speakerBalanceAdvisor = {
+        advise: vi.fn().mockResolvedValue({
+          justified: true,
+          recommendedSpeakerId: 'char_b',
+          reason: 'reason',
+          prompt: 'p',
+          rawOutput: 'r',
+        }),
+      } as unknown as SpeakerBalanceAdvisor;
+      const { manager } = makeConversationManager(
+        ['「一言目」'],
+        undefined,
+        undefined,
+        speakerBalanceAdvisor,
+      );
+      const sessionState = makeSessionState(['char_a', 'char_b', 'char_c']);
+
+      const selectNextSpy = vi.spyOn(SpeakerSelector.prototype, 'selectNext');
+      await manager.runTurn(sessionState);
+
+      expect(selectNextSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          speakerBalanceAdvice: { justified: true, recommendedSpeakerId: 'char_b' },
+        }),
+      );
+      selectNextSpy.mockRestore();
+    });
+
+    it('speakerBalanceAdvisor.adviseに、話者選択の直前時点の参加者一覧・直近発話回数・直近の会話が渡される', async () => {
+      const speakerBalanceAdvisor = {
+        advise: vi.fn().mockResolvedValue({
+          justified: false,
+          recommendedSpeakerId: null,
+          reason: '',
+          prompt: 'p',
+          rawOutput: 'r',
+        }),
+      } as unknown as SpeakerBalanceAdvisor;
+      const { manager } = makeConversationManager(
+        ['「一言目」', '「二言目」'],
+        undefined,
+        undefined,
+        speakerBalanceAdvisor,
+      );
+      const sessionState = makeSessionState(['char_a', 'char_b', 'char_c']);
+
+      await manager.runTurn(sessionState);
+      await manager.runTurn(sessionState);
+
+      const secondCallInput = (speakerBalanceAdvisor.advise as Mock).mock.calls[1][0] as {
+        participants: { characterId: string; name: string; recentSpeakCount: number }[];
+        recentDialogue: string;
+      };
+      expect(secondCallInput.participants).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ characterId: 'char_a', name: '宇良' }),
+          expect.objectContaining({ characterId: 'char_b', name: '楽' }),
+        ]),
+      );
+      expect(secondCallInput.recentDialogue).toContain('一言目');
+    });
+
+    it('2ターン目以降、speakerBalanceAdvisor.adviseには直前の話者のCharacterDefRecord.llm.modelが渡される', async () => {
+      const speakerBalanceAdvisor = {
+        advise: vi.fn().mockResolvedValue({
+          justified: false,
+          recommendedSpeakerId: null,
+          reason: '',
+          prompt: 'p',
+          rawOutput: 'r',
+        }),
+      } as unknown as SpeakerBalanceAdvisor;
+      const { manager } = makeConversationManager(
+        ['「一言目」', '「二言目」'],
+        undefined,
+        { char_a: { provider: 'together', model: 'model-a', temperature: 0.3 } },
+        speakerBalanceAdvisor,
+      );
+      const sessionState = makeSessionState(['char_a', 'char_b', 'char_c']);
+
+      await manager.runTurn(sessionState);
+      await manager.runTurn(sessionState);
+
+      expect(speakerBalanceAdvisor.advise).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ model: 'model-a' }),
+      );
+    });
+
+    it('speakerBalanceAdvisorを指定しない場合、既定のSpeakerBalanceAdvisorが使われ発話生成が失敗しない', async () => {
+      // 既定のSpeakerBalanceAdvisorは実プロンプトテンプレート(speakerBalance/advisor)を
+      // 使うが、このテスト群のfakeテンプレートローダーはテンプレート名を無視して
+      // 固定文字列（プレースホルダーが異なる）を返すため、既定advisor内部のプロンプト構築は
+      // 失敗し、SpeakerBalanceAdvisor.advise()のフォールバック（判定なし）が働く。
+      // ConversationManager.runTurn自体が例外を投げずに完了することを確認する
+      // （デフォルト値配線の回帰防止）。
+      const { manager } = makeConversationManager(['「一言目」', '「二言目」']);
+      const sessionState = makeSessionState(['char_a', 'char_b', 'char_c']);
+
+      const first = await manager.runTurn(sessionState);
+      const second = await manager.runTurn(sessionState);
+
+      expect(first.utterance).toBe('一言目');
+      expect(second.utterance).toBe('二言目');
+    });
+
+    // 自己レビュー（code-reviewスキル）指摘への対応の回帰防止テスト: 参加者が2名以下の
+    // 場合、SpeakerSelector.selectNextは直前の話者以外の候補が1名しかないため
+    // speakerBalanceAdviceを一切参照せず即座に返す（SpeakerSelector.ts参照）。つまり
+    // 2体会話ではSpeakerBalanceAdvisorの判定結果が結果に影響しえないため、無駄な
+    // 追加LLM呼び出しを避けるべく、ConversationManager.runTurnはそもそも呼び出し自体を
+    // スキップする。
+    it('参加者が2名以下の場合、speakerBalanceAdvisor.adviseは呼ばれない', async () => {
+      const speakerBalanceAdvisor = {
+        advise: vi.fn().mockResolvedValue({
+          justified: false,
+          recommendedSpeakerId: null,
+          reason: '',
+          prompt: 'p',
+          rawOutput: 'r',
+        }),
+      } as unknown as SpeakerBalanceAdvisor;
+      const { manager } = makeConversationManager(
+        ['「一言目」', '「二言目」'],
+        undefined,
+        undefined,
+        speakerBalanceAdvisor,
+      );
+      const sessionState = makeSessionState(['char_a', 'char_b']);
+
+      await manager.runTurn(sessionState);
+      await manager.runTurn(sessionState);
+
+      expect(speakerBalanceAdvisor.advise).not.toHaveBeenCalled();
     });
   });
 });

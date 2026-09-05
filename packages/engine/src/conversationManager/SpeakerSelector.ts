@@ -11,6 +11,14 @@ export interface SpeakerSelectionContext {
   recentSpeakerIds: string[];
   // 各キャラクターの直近状態。「積極性」の代理指標として使う（後述）。
   characterStates: Map<string, CharacterState>;
+  // Issue #16対応（plan-c、T44）: SpeakerBalanceAdvisor（llm層、追加のLLM呼び出し1回）に
+  // よる、発話の偏りが内容的に正当化されるかの判定結果。justified:trueの場合は
+  // 頻度バランス補正を緩め（自分語り・二人の思い出話等、偏りが自然な区間の継続を
+  // 妨げないため）、recommendedSpeakerIdが指定されていればそのキャラクターの
+  // スコアを引き上げる。呼び出し失敗時/判定材料が無い場合はConversationManager側で
+  // justified:false・recommendedSpeakerId:nullとして渡され、実質的に既存挙動のまま
+  // （補正なし）になる。省略時（テスト等）も同様に既存挙動のまま。
+  speakerBalanceAdvice?: { justified: boolean; recommendedSpeakerId: string | null };
 }
 
 const NAMED_BONUS = 2.0;
@@ -29,6 +37,14 @@ const PERSONALITY_WEIGHT = 0.5;
 // 「直前の話者と親密な相手が会話に加わりやすい」という簡略化したモデルとする
 // （実装者判断、implementation-rules.md 9章）。
 const RELATIONSHIP_WEIGHT = 0.5;
+// Issue #16対応（plan-c、T44）: SpeakerBalanceAdvisorが提案したrecommendedSpeakerIdへの
+// ボーナス。NAMED_BONUS（名指し）と同程度の強さにし、名指しほど絶対ではないが
+// 積極性・関係性より優先されやすい水準にする（実装者判断）。
+const SPEAKER_BALANCE_RECOMMENDATION_BONUS = 2.0;
+// justified:true（偏りが内容的に正当）の場合、頻度バランス補正の強さをこの係数で弱める。
+// 0にはせず、正当化された偏りが続く区間でも他キャラが完全に発言機会を失わない程度には
+// 残す（実装者判断）。
+const SPEAKER_BALANCE_JUSTIFIED_FREQUENCY_SCALE = 0.3;
 
 /**
  * 次の発話者を選択する（F6.2本実装）。名指し優先・発話頻度バランス・積極性・関係性を
@@ -66,7 +82,13 @@ export class SpeakerSelector {
   }
 
   private scoreCandidate(candidateId: string, context: SpeakerSelectionContext): number {
-    const { previousSpeakerId, previousTargetIds, recentSpeakerIds, characterStates } = context;
+    const {
+      previousSpeakerId,
+      previousTargetIds,
+      recentSpeakerIds,
+      characterStates,
+      speakerBalanceAdvice,
+    } = context;
 
     let score = 1.0;
 
@@ -76,7 +98,13 @@ export class SpeakerSelector {
 
     const window = recentSpeakerIds.slice(-RECENT_WINDOW_SIZE);
     const occurrences = window.filter((id) => id === candidateId).length;
-    score += (RECENT_WINDOW_SIZE - occurrences) * FREQUENCY_WEIGHT;
+    // Issue #16対応（plan-c、T44）: SpeakerBalanceAdvisorが「現在の偏りは内容的に正当」と
+    // 判定した場合（自分語り・二人の思い出話の継続等）、通常の頻度バランス補正が
+    // その自然な継続を妨げてしまうため、補正の強さを弱める。
+    const frequencyWeight = speakerBalanceAdvice?.justified
+      ? FREQUENCY_WEIGHT * SPEAKER_BALANCE_JUSTIFIED_FREQUENCY_SCALE
+      : FREQUENCY_WEIGHT;
+    score += (RECENT_WINDOW_SIZE - occurrences) * frequencyWeight;
 
     const energy = characterStates.get(candidateId)?.energy;
     if (energy !== undefined) {
@@ -86,6 +114,12 @@ export class SpeakerSelector {
     if (this.relationshipManager && previousSpeakerId) {
       const { edge } = this.relationshipManager.resolve(previousSpeakerId, candidateId);
       score += edge.intimacy * RELATIONSHIP_WEIGHT;
+    }
+
+    // Issue #16対応（plan-c、T44）: 理由のない偏りがあると判定された場合、
+    // SpeakerBalanceAdvisorが提案した次話者候補のスコアを底上げする。
+    if (speakerBalanceAdvice?.recommendedSpeakerId === candidateId) {
+      score += SPEAKER_BALANCE_RECOMMENDATION_BONUS;
     }
 
     return score;

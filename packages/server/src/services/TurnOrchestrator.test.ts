@@ -76,7 +76,11 @@ describe('TurnOrchestrator', () => {
     expect(turns.map((t) => t.turnNo)).toEqual([1, 2]);
 
     const layerEvents = turnRepository.listLayerEvents(session.id, 1);
+    // Issue #16対応（plan-c、T44）: SpeakerBalanceAdvisorの判定（layer:speakerBalance）が
+    // turn:start発行直後、他のlayer:*イベントより前に発行されるため先頭に追加された
+    // （ConversationManager.ts参照）。
     expect(layerEvents.map((e) => e.layer)).toEqual([
+      'speakerBalance',
       'topic',
       'relationship',
       'character',
