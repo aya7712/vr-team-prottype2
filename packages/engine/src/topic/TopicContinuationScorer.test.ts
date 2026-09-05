@@ -44,4 +44,28 @@ describe('TopicContinuationScorer', () => {
     expect(max).toBeLessThanOrEqual(1);
     expect(min).toBeGreaterThanOrEqual(0);
   });
+
+  // Issue #16 (plan-b): 「二人だけの思い出を長く語る」ような正当な偏りは、話題が
+  // 未解決のまま継続しているか、深掘りされている状態と一致するという想定のテスト。
+  describe('isPairFocusJustifiedByTopic（Issue #16 plan-b）', () => {
+    it('unresolvedがtrueなら、depth/scoreに関わらず正当化される', () => {
+      const topic = makeTopic({ unresolved: true, depth: 0 });
+      expect(scorer.isPairFocusJustifiedByTopic(topic, 0)).toBe(true);
+    });
+
+    it('depthが深くcontinuationScoreも高ければ正当化される（深掘りが続いている状態）', () => {
+      const topic = makeTopic({ unresolved: false, depth: 3 });
+      expect(scorer.isPairFocusJustifiedByTopic(topic, 0.8)).toBe(true);
+    });
+
+    it('depthが浅くunresolvedでもなければ正当化されない（雑談的な往復）', () => {
+      const topic = makeTopic({ unresolved: false, depth: 0 });
+      expect(scorer.isPairFocusJustifiedByTopic(topic, 0.8)).toBe(false);
+    });
+
+    it('depthが深くてもcontinuationScoreが低ければ正当化されない', () => {
+      const topic = makeTopic({ unresolved: false, depth: 5 });
+      expect(scorer.isPairFocusJustifiedByTopic(topic, 0.1)).toBe(false);
+    });
+  });
 });

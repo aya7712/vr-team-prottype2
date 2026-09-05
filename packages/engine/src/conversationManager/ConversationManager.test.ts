@@ -32,6 +32,21 @@ import { OutputParser } from '../llm/OutputParser.js';
 import type { PromptTemplateLoader } from '../llm/PromptTemplateLoader.js';
 import type { LlmClient } from '../llm/LlmClient.js';
 import type { CharacterDefRecord } from '../data/types.js';
+import type { MemoryItem } from '../types/memory.js';
+import type { DialogueAct } from '../types/dialogueAct.js';
+
+// Issue #16 (plan-b): planNextの結果を固定し、pairFocusJustified算出の入力である
+// DialogueActを決定的にするためのフェイク（DialoguePlannerはSoftmax選択のため
+// 実装のまま使うとActが確率的に揺らぎ、テストが不安定になる）。
+function makeFakeDialoguePlanner(act: DialogueAct): DialoguePlanner {
+  return {
+    planNext: () => ({
+      act,
+      scores: [],
+      expectation: { expectedActs: [] },
+    }),
+  } as unknown as DialoguePlanner;
+}
 
 function makeCharacterDef(
   id: string,
@@ -84,6 +99,10 @@ function makeConversationManager(
   llmResponses: string[],
   eventBus?: EngineEventBus,
   characterLlmConfigs?: Partial<Record<'char_a' | 'char_b', CharacterDefRecord['llm']>>,
+  overrides?: {
+    dialoguePlanner?: DialoguePlanner;
+    memories?: MemoryItem[];
+  },
 ): { manager: ConversationManager; llmClient: LlmClient; relationshipGraph: RelationshipGraph } {
   const relationshipGraph = new RelationshipGraph();
   relationshipGraph.addEdge({
@@ -101,14 +120,16 @@ function makeConversationManager(
   ]);
 
   const catalog = new DialogueActCatalog();
-  const dialoguePlanner = new DialoguePlanner(
-    catalog,
-    new ScoreCalculator(catalog),
-    new SoftmaxSelector(),
-    new SpeechExpectationCalculator(),
-  );
+  const dialoguePlanner =
+    overrides?.dialoguePlanner ??
+    new DialoguePlanner(
+      catalog,
+      new ScoreCalculator(catalog),
+      new SoftmaxSelector(),
+      new SpeechExpectationCalculator(),
+    );
 
-  const memoryRepo = new InMemoryMemoryRepository([]);
+  const memoryRepo = new InMemoryMemoryRepository(overrides?.memories ?? []);
   const memoryRetriever = new MemoryRetriever(memoryRepo);
 
   const templateLoader = makeFakeTemplateLoader(
@@ -354,6 +375,114 @@ describe('ConversationManager', () => {
     expect(llmClient.complete).toHaveBeenNthCalledWith(2, expect.any(String), {
       model: 'model-b',
       temperature: 0.9,
+    });
+  });
+
+  // Issue #16 (plan-b): DialogueAct/Topic/Memoryの内容から「発話者ペアへの集中が
+  // 正当化されるか」を判定し、SessionStateへ保持してSpeakerSelectorに渡す。
+  describe('pairFocusJustified（Issue #16 plan-b）', () => {
+    it('自分語り系Act（story）が選ばれたターンではpairFocusJustifiedがtrueになる', async () => {
+      const { manager } = makeConversationManager(
+        ['「昔こんなことがあってね」'],
+        undefined,
+        undefined,
+        {
+          dialoguePlanner: makeFakeDialoguePlanner('story'),
+        },
+      );
+      const sessionState = makeSessionState();
+
+      await manager.runTurn(sessionState);
+
+      expect(sessionState.pairFocusJustified).toBe(true);
+    });
+
+    it('話者・対象の2名に閉じた記憶が取得されたターンではpairFocusJustifiedがtrueになる', async () => {
+      const closedMemory: MemoryItem = {
+        id: 'mem_1',
+        source: 'preset',
+        owner: 'char_a',
+        participants: ['char_a', 'char_b'],
+        summary: 'テスト（二人だけの思い出）',
+        tags: [],
+        importance: 0.8,
+        shareable: true,
+      };
+      const { manager } = makeConversationManager(
+        ['「あの時のこと覚えてる？」'],
+        undefined,
+        undefined,
+        {
+          dialoguePlanner: makeFakeDialoguePlanner('topicShift'),
+          memories: [closedMemory],
+        },
+      );
+      const sessionState = makeSessionState();
+      sessionState.initialTopic = 'テスト';
+
+      await manager.runTurn(sessionState);
+
+      expect(sessionState.pairFocusJustified).toBe(true);
+    });
+
+    it('自分語り系Actでも二人に閉じた記憶でもなく話題も浅い場合はpairFocusJustifiedがfalseになる', async () => {
+      const { manager } = makeConversationManager(['「そうなんだ」'], undefined, undefined, {
+        dialoguePlanner: makeFakeDialoguePlanner('topicShift'),
+      });
+      const sessionState = makeSessionState();
+
+      await manager.runTurn(sessionState);
+
+      expect(sessionState.pairFocusJustified).toBe(false);
+    });
+
+    it('前ターンのpairFocusJustifiedが次ターンのSpeakerSelector.selectNextへ渡される', async () => {
+      const selectNextSpy = vi.fn().mockReturnValueOnce('char_a').mockReturnValueOnce('char_b');
+      const fakeSpeakerSelector = { selectNext: selectNextSpy } as unknown as SpeakerSelector;
+
+      const relationshipGraph = new RelationshipGraph();
+      const relationshipManager = new RelationshipManager(relationshipGraph, []);
+      const manager = new ConversationManager(
+        new TopicClassifier(),
+        new TopicParameterUpdater(),
+        new TopicContinuationScorer(),
+        relationshipManager,
+        new Map([
+          ['char_a', makeCharacterBrain('char_a')],
+          ['char_b', makeCharacterBrain('char_b')],
+        ]),
+        makeFakeDialoguePlanner('story'),
+        new MemoryRetriever(new InMemoryMemoryRepository([])),
+        new PromptBuilder(makeFakeTemplateLoader('{{characterName}}')),
+        {
+          complete: vi.fn().mockResolvedValue('「そうだね」'),
+        },
+        new OutputParser(),
+        new Map([
+          ['char_a', makeCharacterDef('char_a', '宇良')],
+          ['char_b', makeCharacterDef('char_b', '楽')],
+        ]),
+        fakeSpeakerSelector,
+        new EndConditionEvaluator(),
+        new TopicBranchMerger(),
+        new RelationshipUpdater(),
+      );
+      const sessionState = makeSessionState();
+
+      // 1ターン目: 会話開始直後なのでpairFocusJustifiedはまだundefined。
+      await manager.runTurn(sessionState);
+      expect(selectNextSpy).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ pairFocusJustified: undefined }),
+      );
+      expect(sessionState.pairFocusJustified).toBe(true);
+
+      // 2ターン目: 1ターン目の結果（story→true）がそのまま渡される。
+      await manager.runTurn(sessionState);
+      expect(selectNextSpy).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ pairFocusJustified: true }),
+      );
     });
   });
 });

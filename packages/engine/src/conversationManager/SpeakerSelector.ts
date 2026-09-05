@@ -11,6 +11,13 @@ export interface SpeakerSelectionContext {
   recentSpeakerIds: string[];
   // 各キャラクターの直近状態。「積極性」の代理指標として使う（後述）。
   characterStates: Map<string, CharacterState>;
+  // Issue #16 (plan-b): 直前ターン（previousSpeakerId → previousTargetIds）の発話内容
+  // （DialogueAct/Topic/Memory）から見て、そのペアへの発話集中が正当化されるかどうか
+  // （SessionState.pairFocusJustified、ConversationManagerが算出）。
+  // true: 自分語り・二人だけの思い出等で正当化される→発話頻度バランス補正を緩める。
+  // false: 正当化する裏付けが無い→発話頻度バランス補正をより強く効かせる。
+  // undefined（会話開始直後等）: 補正は基準値のまま変更しない。
+  pairFocusJustified?: boolean;
 }
 
 const NAMED_BONUS = 2.0;
@@ -29,6 +36,15 @@ const PERSONALITY_WEIGHT = 0.5;
 // 「直前の話者と親密な相手が会話に加わりやすい」という簡略化したモデルとする
 // （実装者判断、implementation-rules.md 9章）。
 const RELATIONSHIP_WEIGHT = 0.5;
+// Issue #16 (plan-b): 発話頻度バランス補正（FREQUENCY_WEIGHT）自体の基本パラメータは
+// plan-a（別案、既存の頻度・関係性スコアのチューニング担当）の変更対象であり、
+// ここでは変更しない。代わりに、pairFocusJustifiedの値に応じて補正の「効き具合」を
+// 乗数で緩める/強めるだけにとどめる。具体的な倍率はfeatures.mdに明記が無いため
+// 実装者判断で設定した（doc/changelog/20260905-003720-content-justified-speaker-balance.md）。1.0を挟んで対称にせず「強める」側を
+// やや大きくしたのは、Issueが問題視しているのは「正当な理由なく偏る」ケースであり、
+// 是正側の効果を確実に出したいため。
+const FREQUENCY_WEIGHT_JUSTIFIED_MULTIPLIER = 0.4;
+const FREQUENCY_WEIGHT_UNJUSTIFIED_MULTIPLIER = 1.6;
 
 /**
  * 次の発話者を選択する（F6.2本実装）。名指し優先・発話頻度バランス・積極性・関係性を
@@ -76,7 +92,8 @@ export class SpeakerSelector {
 
     const window = recentSpeakerIds.slice(-RECENT_WINDOW_SIZE);
     const occurrences = window.filter((id) => id === candidateId).length;
-    score += (RECENT_WINDOW_SIZE - occurrences) * FREQUENCY_WEIGHT;
+    const frequencyMultiplier = this.resolveFrequencyMultiplier(context.pairFocusJustified);
+    score += (RECENT_WINDOW_SIZE - occurrences) * FREQUENCY_WEIGHT * frequencyMultiplier;
 
     const energy = characterStates.get(candidateId)?.energy;
     if (energy !== undefined) {
@@ -89,6 +106,15 @@ export class SpeakerSelector {
     }
 
     return score;
+  }
+
+  // Issue #16 (plan-b): pairFocusJustifiedがundefined（会話開始直後など、まだ内容面の
+  // 正当化判定が行われていない状態）の場合は基準値（1.0倍）のまま変更しない。
+  private resolveFrequencyMultiplier(pairFocusJustified: boolean | undefined): number {
+    if (pairFocusJustified === undefined) return 1.0;
+    return pairFocusJustified
+      ? FREQUENCY_WEIGHT_JUSTIFIED_MULTIPLIER
+      : FREQUENCY_WEIGHT_UNJUSTIFIED_MULTIPLIER;
   }
 
   // DialoguePlanner.SoftmaxSelectorと同じ考え方（Softmax化→累積確率でのサンプリング）。

@@ -7,7 +7,7 @@ import type { PromptBuilder, LlmClient, OutputParser } from '../llm/index.js';
 import type { TopicClassifier } from '../topic/TopicClassifier.js';
 import type { TopicParameterUpdater } from '../topic/TopicParameterUpdater.js';
 import type { TopicContinuationScorer } from '../topic/TopicContinuationScorer.js';
-import type { DialoguePlanner } from '../dialoguePlanner/DialoguePlanner.js';
+import { type DialoguePlanner, isSelfNarrativeAct } from '../dialoguePlanner/DialoguePlanner.js';
 import type { EngineEventBus } from '../logging/EngineEventBus.js';
 import type { DialogueAct } from '../types/dialogueAct.js';
 import type { Topic } from '../types/topic.js';
@@ -34,6 +34,18 @@ const ACT_TO_TOPIC_EVENT: Partial<
   deepDive: 'newInfo',
   fillSilence: 'prolonged',
 };
+
+// Issue #16 (plan-b): 取得された記憶がspeaker/targetの2名に閉じたもの（＝話者ペア以外の
+// 参加者には無関係な「二人だけの思い出」）かどうかを判定する。participantsの並び順に
+// 依存しないよう集合として比較する。共有記憶（shareable: true）自体は他の参加者にも
+// 開かれた話題になりうるため、この判定には使わない（features.md/data-design.mdに
+// 「shareableかどうか」と「participantsが誰か」を区別する明確な仕様が無いため
+// 実装者判断、doc/changelog/20260905-003720-content-justified-speaker-balance.md）。
+function isMemoryClosedToPair(memory: MemoryItem, speakerId: string, targetId: string): boolean {
+  if (memory.participants.length !== 2) return false;
+  const pair = new Set([speakerId, targetId]);
+  return memory.participants.every((id) => pair.has(id));
+}
 
 /**
  * F6全体のオーケストレーション（1ターンの実行フロー）。
@@ -78,6 +90,9 @@ export class ConversationManager {
       characterStates: new Map(
         [...this.characterBrains.entries()].map(([id, brain]) => [id, brain.getState()]),
       ),
+      // Issue #16 (plan-b): 直前ターン（previousSpeakerId → previousTargetIds）への
+      // 発話集中が内容的に正当化されるかどうか（前ターンのrunTurnの末尾で算出済み）。
+      pairFocusJustified: sessionState.pairFocusJustified,
     });
     // 話しかける相手はT29時点では「直前の話者」をデフォルトとする（自然な返答の宛先として
     // 最も妥当なため）。3〜4体構成での話しかけ相手の高度な決定（複数人への同時発話等）は
@@ -181,6 +196,17 @@ export class ConversationManager {
     ].slice(-5);
     sessionState.conversationStateManager.updateAfterTurn(act, topicScore);
     this.relationshipUpdater.applyTurnResult(this.relationshipManager.getGraph(), result);
+    // Issue #16 (plan-b): このターンの内容（Act/Topic/Memory）から見て、このターンの
+    // 話者ペア（speakerId × targetId）への発話集中が正当化されるかどうかを算出し、
+    // 次ターンのSpeakerSelector.selectNextへ渡すためSessionStateへ保持する。
+    sessionState.pairFocusJustified = this.computePairFocusJustified(
+      act,
+      topic,
+      topicScore,
+      retrievedMemories,
+      speakerId,
+      targetId,
+    );
 
     this.eventBus?.emit('turn:complete', result);
     return result;
@@ -195,6 +221,27 @@ export class ConversationManager {
     ) {
       yield await this.runTurn(sessionState);
     }
+  }
+
+  /**
+   * Issue #16 (plan-b): DialogueAct（自分語り系か）・Topic（未解決・深掘り度合い）・
+   * 取得済み記憶（話者・対象の2名に閉じた記憶か）のいずれかが「このペアへの発話集中は
+   * 内容的に正当だ」と裏付けている場合にtrueを返す。3条件はOR結合とし、1つでも
+   * 裏付けがあれば正当化とみなす（features.mdに明確な仕様が無いため実装者判断、
+   * doc/changelog/20260905-003720-content-justified-speaker-balance.md）。裏付けが無い場合はSpeakerSelector側の頻度バランス補正を
+   * より強く効かせ、他の参加者に発話機会を戻す。
+   */
+  private computePairFocusJustified(
+    act: DialogueAct,
+    topic: Topic,
+    topicScore: number,
+    retrievedMemories: MemoryItem[],
+    speakerId: string,
+    targetId: string,
+  ): boolean {
+    if (isSelfNarrativeAct(act)) return true;
+    if (this.continuationScorer.isPairFocusJustifiedByTopic(topic, topicScore)) return true;
+    return retrievedMemories.some((memory) => isMemoryClosedToPair(memory, speakerId, targetId));
   }
 
   private async resolveTopic(
